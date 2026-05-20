@@ -1,0 +1,26 @@
+PROGRAM_NAME	= S-IGA
+COMPILER	    = g++
+CFLAGS			= -Ofast -lm -Wall -Wextra -pipe -std=c++20 -fopenmp
+
+HEADERS = _header.hpp _class.hpp _func.hpp _constant.hpp _main.hpp _sub.hpp _IIM2D.hpp _IIM3D.hpp _extension.hpp _MI3D.hpp
+
+# オブジェクトファイルの依存関係を明示的に定義
+SUB_OBJS = sub_pre.o sub_tool.o sub_search.o sub_MI3D.o class.o
+FRAC_OBJS = fracture_IIM2D.o fracture_IIM3D.o fracture_extension.o
+
+DEPS = $(SRCS:.cpp=.d)
+
+CXXFLAGS = -I/cygdrive/e/kurosawa/eigen-3.4.0
+
+# compile
+$(PROGRAM_NAME).x: main.o $(SUB_OBJS) $(FRAC_OBJS)
+	$(COMPILER) -o $@ $^ $(CFLAGS)
+
+# 個別のオブジェクトファイルのコンパイル
+%.o: %.cpp $(HEADERS)
+	$(COMPILER) -c $< $(CFLAGS)
+
+clean:
+	rm -f *.o *.d $(PROGRAM_NAME).x
+
+-include $(DEPS)

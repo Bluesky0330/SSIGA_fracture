@@ -1,0 +1,20 @@
+# suppressions.txt という名前で保存
+{
+   OpenMP_thread_cleanup
+   Helgrind:Race
+   ...
+   fun:__kmp_*
+   ...
+}
+
+{
+   OpenMP_internal_race
+   Helgrind:Race
+   obj:*/libgomp.so.*
+}
+
+{
+   OpenMP_barrier_race
+   Helgrind:Race
+   fun:__kmp_hyper_barrier_release
+}

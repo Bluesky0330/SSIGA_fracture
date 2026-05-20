@@ -1,0 +1,17 @@
+# blue to red rainbow 10
+
+#0000FF
+#0071FF
+#00E3FF
+#00FFAA
+#00FF39
+#39FF00
+#AAFF00
+#FFE300
+#FF7100
+#FF0000
+
+# blue to red rainbow 15
+
+
+# blue to red rainbow 20

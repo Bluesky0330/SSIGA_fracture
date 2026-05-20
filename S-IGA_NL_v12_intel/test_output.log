@@ -1,0 +1,697 @@
+
+[36m============================================================[0m
+[36m   状態確認[0m
+[36m============================================================[0m
+[36m[Local][0m  ソース変更あり (1 files) -> 再実行
+
+[36m============================================================[0m
+[36m   解析再実行 (RERUN)[0m
+[36m============================================================[0m
+[33m--- ファイル同期 ---[0m
+[36m[Local][0m  rsync実行中...
+sending incremental file list
+./
+analysis/
+src/sub_NL.cpp
+            700   0%    0.00kB/s    0:00:00          417,706 100%   99.42MB/s    0:00:00 (xfr#1, to-chk=127/4542)
+src_fast/src/
+[33m--- リモート実行準備 ---[0m
+[36m[Remote][0m ログ初期化 & 古いセッションの削除
+[36m[Remote][0m makeターゲットの存在チェック: APCOM_SIGA_large_deformation_through_crack
+[36m[Remote][0m tmuxセッション作成 & make投入
+[32m[36m[Remote][0m 解析開始 (PID: 727266)[0m
+
+[36m============================================================[0m
+[36m   ログモニタリング[0m
+[36m============================================================[0m
+  - [1;31m'q' キー[0m : デタッチ
+  - [1;31m'x' キー[0m : Ctrl+C (SIGINT) 相当 — リモート解析を中断
+
+Perf mode: stat
+cd ./src_fast && ./build.sh
+make[1]: ディレクトリ '/home/tsuchiyama/S-IGA_NL_v11_intel/src_fast' に入ります
+make[1]: 'fast.x' は更新済みです.
+make[1]: ディレクトリ '/home/tsuchiyama/S-IGA_NL_v11_intel/src_fast' から出ます
+make[1]: ディレクトリ '/home/tsuchiyama/S-IGA_NL_v11_intel/src_fast/src' に入ります
+../fast.x ./constant.ini 3 ./main.cpp ./class.cpp ./sub_MI3D.cpp ./sub_NL.cpp ./sub_post.cpp ./sub_pre.cpp ./sub_search.cpp ./sub_solver.cpp ./sub_tool.cpp
+Loaded constant: info->c.ANALYSIS_MODE_0 = 1
+Loaded constant: info->c.ANALYSIS_MODE_1 = 1
+Loaded constant: info->c.BASE_PATCH_SIGA = 0
+Loaded constant: info->c.SOLVER = 4
+Loaded constant: info->c.M_MODE = 2
+Loaded constant: info->c.CALC_ON_GP = 1
+Loaded constant: info->c.CALC_ON_ELE_VERTEX = 1
+Loaded constant: info->c.OUTPUT_SVG = 1
+Loaded constant: info->c.OUTPUT_DEFORMED = 0
+Loaded constant: info->c.PARAVIEW_GLO_MODE = 0
+Loaded constant: info->c.PARAVIEW_CRACK_REPRESENTATION = 1
+Loaded constant: info->c.BIN_MODE = 2
+Loaded constant: info->c.MODE_EX = 1
+Loaded constant: info->c.MAX_OCTREE_N = 0
+Loaded constant: info->c.DM = 1
+Loaded constant: info->c.NG = 4
+Loaded constant: info->c.NG_EXTEND = 6
+Loaded constant: info->c.BLENDING = 1
+Loaded constant: info->c.B_BAR = 0
+Loaded constant: info->c.EPS = 1.0e-6
+Loaded constant: info->c.TOTAL_SECONDS = 10.0
+Loaded constant: info->c.STEP_N = 2
+Loaded constant: info->c.CUTBACK = 1
+Loaded constant: info->c.NEWTON_RAPHSON_MAX_ITR = 10
+Loaded constant: info->c.NEWTON_RAPHSON_EPS = 1.0e-10
+Loaded constant: info->c.UPDATE_CONTROL_POINT_MAX_ITR = 100
+Loaded constant: info->c.FICT_COEF = 0.0
+Set DIMENSION to: 3
+Processing file: ./main.cpp
+Processing file: ./class.cpp
+Processing file: ./sub_MI3D.cpp
+Processing file: ./sub_NL.cpp
+Processing file: ./sub_post.cpp
+Processing file: ./sub_pre.cpp
+Processing file: ./sub_search.cpp
+Processing file: ./sub_solver.cpp
+Processing file: ./sub_tool.cpp
+Processing file: ./main.cpp
+Processing file: ./class.cpp
+Processing file: ./sub_MI3D.cpp
+Processing file: ./sub_NL.cpp
+Processing file: ./sub_post.cpp
+Processing file: ./sub_pre.cpp
+Processing file: ./sub_search.cpp
+Processing file: ./sub_solver.cpp
+Processing file: ./sub_tool.cpp
+Merge completed successfully.
+Output written to: merged_output.cpp
+Debug output written to: merged_output_debug.cpp
+make[1]: ディレクトリ '/home/tsuchiyama/S-IGA_NL_v11_intel/src_fast/src' から出ます
+make[1]: ディレクトリ '/home/tsuchiyama/S-IGA_NL_v11_intel/src_fast/src' に入ります
+icpx -o SIGA.x merged_output.cpp \
+	-ipo -Bstatic -lmkl_rt -lpthread -lm -ldl -liomp5 -lhdf5_cpp -lhdf5 -L/usr/lib/x86_64-linux-gnu/hdf5/serial \
+	-O3 -mkl -qopenmp -qopenmp-simd -pipe -funroll-loops -qmkl=parallel -falign-functions=64 -std=c++20 -qopt-zmm-usage=high -mtune=native -march=native -Wall -Wextra -I/usr/include/hdf5/serial
+merged_output.cpp:206:84: warning: unused parameter 'info' [-Wunused-parameter]
+  206 | octree_node::octree_node(int *input_octree_position, int input_level, information *info) : is_leaf(true), level(input_level)
+      |                                                                                    ^
+merged_output.cpp:213:70: warning: unused parameter 'info' [-Wunused-parameter]
+  213 | void octree_node::recieve_para(target_domain &input_td, information *info)
+      |                                                                      ^
+merged_output.cpp:446:49: warning: unused parameter 'info' [-Wunused-parameter]
+  446 | void J_point_info::init(J_info &J, information *info)
+      |                                                 ^
+merged_output.cpp:3281:6: warning: explicit comparison with NaN in fast floating point mode [-Wtautological-constant-compare]
+ 3281 |         if (std::isnan(residual_vol) || std::isinf(residual_vol) || residual > 1.0e5 ||
+      |             ^~~~~~~~~~~~~~~~~~~~~~~~
+merged_output.cpp:3281:34: warning: explicit comparison with infinity in fast floating point mode [-Wtautological-constant-compare]
+ 3281 |         if (std::isnan(residual_vol) || std::isinf(residual_vol) || residual > 1.0e5 ||
+      |                                         ^~~~~~~~~~~~~~~~~~~~~~~~
+merged_output.cpp:3662:15: warning: unused variable 'dec_order' [-Wunused-variable]
+ 3662 |         information *dec_order= info->dec_order.get(); 
+      |                      ^~~~~~~~~
+merged_output.cpp:6004:15: warning: unused variable 'dec_order' [-Wunused-variable]
+ 6004 |         information *dec_order= info->dec_order.get();
+      |                      ^~~~~~~~~
+merged_output.cpp:7641:42: warning: unused parameter 'info' [-Wunused-parameter]
+ 7641 | void D_elastic(double *D_e, information *info)
+      |                                          ^
+merged_output.cpp:7668:40: warning: unused parameter 'info' [-Wunused-parameter]
+ 7668 | void D_dil(double *D_dil, information *info)
+      |                                        ^
+merged_output.cpp:20280:31: warning: unused parameter 'info' [-Wunused-parameter]
+ 20280 | void Gauss_point(information *info, int temp_GP_1D, double *w_ptr, double *point_ptr, double *w_1D_ptr, double *point_1D_ptr)
+       |                               ^
+merged_output.cpp:22822:77: warning: unused parameter 'info' [-Wunused-parameter]
+ 22822 | bool checkPosition(target_domain &td_base, double *check_para, information *info)
+       |                                                                             ^
+merged_output.cpp:22942:87: warning: unused parameter 'info' [-Wunused-parameter]
+ 22942 | void makeChildPosition(int *child_position, int i, int *parent_position, information *info)
+       |                                                                                       ^
+merged_output.cpp:25613:7: warning: explicit comparison with NaN in fast floating point mode [-Wtautological-constant-compare]
+ 25613 |                 if (std::isnan(norm_vol) || std::isinf(norm_vol) || norm != norm || 
+       |                     ^~~~~~~~~~~~~~~~~~~~
+merged_output.cpp:25613:31: warning: explicit comparison with infinity in fast floating point mode [-Wtautological-constant-compare]
+ 25613 |                 if (std::isnan(norm_vol) || std::isinf(norm_vol) || norm != norm || 
+       |                                             ^~~~~~~~~~~~~~~~~~~~
+merged_output.cpp:25684:8: warning: explicit comparison with NaN in fast floating point mode [-Wtautological-constant-compare]
+ 25684 |                         if (std::isnan(norm_vol) || std::isinf(norm_vol) || norm != norm || 
+       |                             ^~~~~~~~~~~~~~~~~~~~
+merged_output.cpp:25684:32: warning: explicit comparison with infinity in fast floating point mode [-Wtautological-constant-compare]
+ 25684 |                         if (std::isnan(norm_vol) || std::isinf(norm_vol) || norm != norm || 
+       |                                                     ^~~~~~~~~~~~~~~~~~~~
+merged_output.cpp:25715:9: warning: explicit comparison with NaN in fast floating point mode [-Wtautological-constant-compare]
+ 25715 |                                 if (std::isnan(nu_vol) || std::isinf(nu_vol) || nu != nu || nu < 1.0e-100) {
+       |                                     ^~~~~~~~~~~~~~~~~~
+merged_output.cpp:25715:31: warning: explicit comparison with infinity in fast floating point mode [-Wtautological-constant-compare]
+ 25715 |                                 if (std::isnan(nu_vol) || std::isinf(nu_vol) || nu != nu || nu < 1.0e-100) {
+       |                                                           ^~~~~~~~~~~~~~~~~~
+18 warnings generated.
+make[1]: ディレクトリ '/home/tsuchiyama/S-IGA_NL_v11_intel/src_fast/src' から出ます
+build completed.
+cd ./analysis && rm -rf output
+cd ./analysis && mkdir -p output
+cd ./analysis/output && mkdir -p bin
+cd ./analysis/material && ./cp.sh ./option_APCOM_TC_SIGA_ep.ini
+cd ./analysis/output && . ../setenv.sh && perf stat -dd numactl --localalloc stdbuf -oL ../../src_fast/SIGA.x ../input/APCOM_glo_large_deformation_through_crack.txt ../input/APCOM_loc_large_deformation_through_crack.txt ./option_APCOM_TC_SIGA_ep.ini | tee log.txt
+
+	Environment variables set by setenv.sh:
+		LD_PRELOAD	= [35m/usr/lib64/libjemalloc.so.2[0m
+		OMP_NUM_THREADS	= [35m40[0m
+		OMP_PROC_BIND	= [35mclose[0m
+		OMP_PLACES	= [35mcores[0m
+		KMP_AFFINITY	= [35m[0m
+		KMP_BLOCKTIME	= [35m0[0m
+
+Option files loaded from ./option_APCOM_TC_SIGA_ep.ini :
+  [0] constant.ini
+  [1] material_ep.txt
+  [2] crack_pair_SIGA_no_crack.txt
+  [3] (not specified)
+  [4] blending_faces_APCOM_TC.ini
+  [5] APCOM_aux_large_deformation_through_crack.txt
+  [6] (not specified)
+  [7] (not specified)
+ANALYSIS_MODE_0: 1
+ANALYSIS_MODE_1: 1
+BASE_PATCH_SIGA: 0
+SOLVER: 4
+M_MODE: 2
+CALC_ON_GP: 1
+CALC_ON_ELE_VERTEX: 1
+OUTPUT_SVG: 1
+OUTPUT_DEFORMED: 0
+PARAVIEW_GLO_MODE: 0
+PARAVIEW_CRACK_REPRESENTATION: 1
+BIN_MODE: 2
+MODE_EX: 1
+MAX_OCTREE_N: 0
+DM: 1
+NG: 4
+NG_EXTEND: 6
+BLENDING: 1
+B_BAR: 0
+EPS: 1.0e-6
+TOTAL_SECONDS: 10.0
+STEP_N: 2
+CUTBACK: 1
+NEWTON_RAPHSON_MAX_ITR: 10
+NEWTON_RAPHSON_EPS: 1.0e-10
+UPDATE_CONTROL_POINT_MAX_ITR: 100
+FICT_COEF: 0.0
+S-IGA carried out.(1 local meshes)
+
+DIMENSION: 3
+E: 2.000000e+05, nu: 3.000000e-01
+No_Patch: 1
+Total_Patch_to_mesh[0] = 0
+Total_Control_Point: 8192
+Total_Control_Point_to_mesh[0] = 0
+Total_Constraint = 1536
+Total_Load = 0
+Total_DistributedForce = 1
+
+DIMENSION: 3
+E: 2.000000e+05, nu: 3.000000e-01
+No_Patch: 2
+Total_Patch_to_mesh[1] = 1
+Total_Control_Point: 35245
+Total_Control_Point_to_mesh[1] = 8192
+Total_Constraint = 8019
+Total_Load = 0
+Total_DistributedForce = 0
+
+Order[0] = 3
+Order[1] = 3
+Order[2] = 3
+No_knot[0] = 36
+No_knot[1] = 36
+No_knot[2] = 12
+No_Control_point[0] = 32
+No_Control_point[1] = 32
+No_Control_point[2] = 8
+No_Control_point_in_patch[0] = 8192	
+Total_Element = 4205
+Total_Element_on_mesh[0] = 4205
+No_Control_point_ON_ELEMENT[0] = 64
+Distibuted load number: 0
+type_load: 2 iPatch: 0 iCoord: 2 jCoord: 0 val_Coord: 1.000000e+00
+Range_Coord: 0.000000e+00 1.000000e+00 0.000000e+00 1.000000e+00
+Coef_Dist_Load: 2.200000e+02 0.000000e+00 0.000000e+00 1.000000e+00 0.000000e+00 0.000000e+00
+Order[3] = 3
+Order[4] = 3
+Order[5] = 3
+Order[6] = 3
+Order[7] = 3
+Order[8] = 3
+No_knot[3] = 23
+No_knot[4] = 39
+No_knot[5] = 23
+No_knot[6] = 39
+No_knot[7] = 39
+No_knot[8] = 23
+No_Control_point[3] = 19
+No_Control_point[4] = 35
+No_Control_point[5] = 19
+No_Control_point[6] = 35
+No_Control_point[7] = 35
+No_Control_point[8] = 19
+No_Control_point_in_patch[1] = 12635	No_Control_point_in_patch[2] = 23275	
+Total_Element = 24576
+Total_Element_on_mesh[1] = 24576
+No_Control_point_ON_ELEMENT[1] = 64
+No_Control_point_ON_ELEMENT[2] = 64
+
+
+Finish Get Input data
+
+
+Finish Make INC
+
+
+Finish Preprocessing
+
+
+K_Whole_Size = 120756
+
+
+Finish Make_K_Whole_Ptr_Col
+
+
+Finish Make_F_Vec
+
+
+Preprocess time: 34.122[s]
+
+
+Start Non-linear analysis
+
+Option files loaded from ./option_APCOM_TC_SIGA_ep.ini :
+  [0] constant.ini
+  [1] material_ep.txt
+  [2] crack_pair_SIGA_no_crack.txt
+  [3] (not specified)
+  [4] blending_faces_APCOM_TC.ini
+  [5] APCOM_aux_large_deformation_through_crack.txt
+  [6] (not specified)
+  [7] (not specified)
+ANALYSIS_MODE_0: 1
+ANALYSIS_MODE_1: 1
+BASE_PATCH_SIGA: 0
+SOLVER: 4
+M_MODE: 2
+CALC_ON_GP: 1
+CALC_ON_ELE_VERTEX: 1
+OUTPUT_SVG: 1
+OUTPUT_DEFORMED: 0
+PARAVIEW_GLO_MODE: 0
+PARAVIEW_CRACK_REPRESENTATION: 1
+BIN_MODE: 2
+MODE_EX: 1
+MAX_OCTREE_N: 0
+DM: 1
+NG: 4
+NG_EXTEND: 6
+BLENDING: 1
+B_BAR: 0
+EPS: 1.0e-6
+TOTAL_SECONDS: 10.0
+STEP_N: 2
+CUTBACK: 1
+NEWTON_RAPHSON_MAX_ITR: 10
+NEWTON_RAPHSON_EPS: 1.0e-10
+UPDATE_CONTROL_POINT_MAX_ITR: 100
+FICT_COEF: 0.0
+DIMENSION: 3
+E: 2.000000e+05, nu: 3.000000e-01
+No_Patch: 1
+Total_Patch_to_mesh[0] = 0
+Total_Control_Point: 8192
+Total_Control_Point_to_mesh[0] = 0
+Total_Constraint = 1536
+Total_Load = 0
+Total_DistributedForce = 1
+
+DIMENSION: 3
+E: 2.000000e+05, nu: 3.000000e-01
+No_Patch: 3
+Total_Patch_to_mesh[1] = 1
+Total_Control_Point: 4347
+Total_Control_Point_to_mesh[1] = 8192
+Total_Constraint = 0
+Total_Load = 0
+Total_DistributedForce = 0
+
+Order[0] = 3
+Order[1] = 3
+Order[2] = 3
+No_knot[0] = 36
+No_knot[1] = 36
+No_knot[2] = 12
+No_Control_point[0] = 32
+No_Control_point[1] = 32
+No_Control_point[2] = 8
+No_Control_point_in_patch[0] = 8192	
+Total_Element = 4205
+Total_Element_on_mesh[0] = 4205
+No_Control_point_ON_ELEMENT[0] = 64
+Distibuted load number: 0
+type_load: 2 iPatch: 0 iCoord: 2 jCoord: 0 val_Coord: 1.000000e+00
+Range_Coord: 0.000000e+00 1.000000e+00 0.000000e+00 1.000000e+00
+Coef_Dist_Load: 2.200000e+02 0.000000e+00 0.000000e+00 1.000000e+00 0.000000e+00 0.000000e+00
+Order[3] = 2
+Order[4] = 2
+Order[5] = 2
+Order[6] = 2
+Order[7] = 2
+Order[8] = 2
+Order[9] = 2
+Order[10] = 2
+Order[11] = 2
+No_knot[3] = 12
+No_knot[4] = 35
+No_knot[5] = 10
+No_knot[6] = 12
+No_knot[7] = 12
+No_knot[8] = 10
+No_knot[9] = 33
+No_knot[10] = 12
+No_knot[11] = 10
+No_Control_point[3] = 9
+No_Control_point[4] = 32
+No_Control_point[5] = 7
+No_Control_point[6] = 9
+No_Control_point[7] = 9
+No_Control_point[8] = 7
+No_Control_point[9] = 30
+No_Control_point[10] = 9
+No_Control_point[11] = 7
+No_Control_point_in_patch[1] = 2016	No_Control_point_in_patch[2] = 567	No_Control_point_in_patch[3] = 1890	
+Total_Element = 2275
+Total_Element_on_mesh[1] = 2275
+No_Control_point_ON_ELEMENT[1] = 27
+No_Control_point_ON_ELEMENT[2] = 27
+No_Control_point_ON_ELEMENT[3] = 27
+Set blending area
+Patch: 2
+Dim type: 2
+Axis: 0 Face: 0 Start: 0 End: 1 Inner radius: 1 Outer radius: 1 Center: 1
+Axis: 1 Face: 0 Start: 0 End: 1 Inner radius: 1 Outer radius: 1 Center: 1
+Dim type: 2
+Axis: 0 Face: 0 Start: 0 End: 1 Inner radius: 1 Outer radius: 1 Center: 1
+Axis: 1 Face: 0 Start: 0 End: 1 Inner radius: 1 Outer radius: 1 Center: 1
+Finish 'Make_connectivity'
+
+Finish 'output_for_paraview_timestep'
+
+[36mload step 0 / 2
+[0maux_flag = 1
+start update internal force
+isAuxPatch: 0
+[31melastic
+[0misAuxPatch: 1
+[31melastic
+[0mfinish update internal force
+[33m
+Newton Raphson (factor = 5.000000e-01, delta_factor = 5.000000e-01)
+itr = 0, residual = 1.00000e+00, residual glo = 1.00000e+00, residual loc = 1.00000e+00
+[0m[33mitr = 0, sol norm = 0.00000e+00, sol norm glo = 0.00000e+00, sol norm loc = 0.00000e+00
+
+[0mstart calc K
+isAuxPatch = 0
+end calc K
+start calc K
+isAuxPatch = 1
+end calc K
+start Update_force_vector
+isAuxPatch: 0
+isAuxPatch: 1
+finish Update_force_vector
+
+start pardiso
+Solve completed
+
+start update internal force
+isAuxPatch: 0
+[31melastic
+[0m[31mplastic
+[0misAuxPatch: 1
+[31melastic
+[0mfinish update internal force
+[33m
+Newton Raphson (factor = 5.000000e-01, delta_factor = 5.000000e-01)
+itr = 1, residual = 5.17105e-02, residual glo = 4.06948e-02, residual loc = 3.19046e-02
+[0m[33mitr = 1, sol norm = 6.24068e-01, sol norm glo = 1.56580e-01, sol norm loc = 6.04106e-01
+
+[0mstart calc K
+isAuxPatch = 0
+end calc K
+start calc K
+isAuxPatch = 1
+end calc K
+start Update_force_vector
+isAuxPatch: 0
+isAuxPatch: 1
+finish Update_force_vector
+
+start pardiso
+Solve completed
+
+start update internal force
+isAuxPatch: 0
+[31melastic
+[0m[31mplastic
+[0misAuxPatch: 1
+[31melastic
+[0mfinish update internal force
+[33m
+Newton Raphson (factor = 5.000000e-01, delta_factor = 5.000000e-01)
+itr = 2, residual = 2.08684e-02, residual glo = 1.66666e-02, residual loc = 1.25584e-02
+[0m[33mitr = 2, sol norm = 2.38507e-01, sol norm glo = 6.31755e-02, sol norm loc = 2.29988e-01
+
+[0mstart calc K
+isAuxPatch = 0
+end calc K
+start calc K
+isAuxPatch = 1
+end calc K
+start Update_force_vector
+isAuxPatch: 0
+isAuxPatch: 1
+finish Update_force_vector
+
+start pardiso
+Solve completed
+
+start update internal force
+isAuxPatch: 0
+[31melastic
+[0m[31mplastic
+[0misAuxPatch: 1
+[31melastic
+[0mfinish update internal force
+[33m
+Newton Raphson (factor = 5.000000e-01, delta_factor = 5.000000e-01)
+itr = 3, residual = 1.44023e-03, residual glo = 9.76750e-04, residual loc = 1.05841e-03
+[0m[33mitr = 3, sol norm = 1.66908e-01, sol norm glo = 4.43036e-02, sol norm loc = 1.60920e-01
+
+[0mstart calc K
+isAuxPatch = 0
+end calc K
+start calc K
+isAuxPatch = 1
+end calc K
+start Update_force_vector
+isAuxPatch: 0
+isAuxPatch: 1
+finish Update_force_vector
+
+start pardiso
+Solve completed
+
+start update internal force
+isAuxPatch: 0
+[31melastic
+[0m[31mplastic
+[0misAuxPatch: 1
+[31melastic
+[0mfinish update internal force
+[33m
+Newton Raphson (factor = 5.000000e-01, delta_factor = 5.000000e-01)
+itr = 4, residual = 2.41260e-05, residual glo = 1.20097e-05, residual loc = 2.09244e-05
+[0m[33mitr = 4, sol norm = 3.22121e-02, sol norm glo = 9.93592e-03, sol norm loc = 3.06414e-02
+
+[0mstart calc K
+isAuxPatch = 0
+end calc K
+start calc K
+isAuxPatch = 1
+end calc K
+start Update_force_vector
+isAuxPatch: 0
+isAuxPatch: 1
+finish Update_force_vector
+
+start pardiso
+Solve completed
+
+start update internal force
+isAuxPatch: 0
+[31melastic
+[0m[31mplastic
+[0misAuxPatch: 1
+[31melastic
+[0mfinish update internal force
+[33m
+Newton Raphson (factor = 5.000000e-01, delta_factor = 5.000000e-01)
+itr = 5, residual = 2.18556e-07, residual glo = 3.59589e-08, residual loc = 2.15578e-07
+[0m[33mitr = 5, sol norm = 5.40954e-04, sol norm glo = 1.72979e-04, sol norm loc = 5.12551e-04
+
+[0mstart calc K
+isAuxPatch = 0
+end calc K
+start calc K
+isAuxPatch = 1
+end calc K
+start Update_force_vector
+isAuxPatch: 0
+isAuxPatch: 1
+finish Update_force_vector
+
+start pardiso
+Solve completed
+
+start update internal force
+isAuxPatch: 0
+[31melastic
+[0m[31mplastic
+[0misAuxPatch: 1
+[31melastic
+[0mfinish update internal force
+[33m
+Newton Raphson (factor = 5.000000e-01, delta_factor = 5.000000e-01)
+itr = 6, residual = 2.66910e-12, residual glo = 1.37227e-12, residual loc = 2.28931e-12
+[0m[33mitr = 6, sol norm = 1.94444e-06, sol norm glo = 5.25727e-07, sol norm loc = 1.87202e-06
+
+[0mFinish 'output_for_paraview_timestep'
+
+start calc_J
+skip calc_J in finite deformation analysis
+[36mload step 1 / 2
+[0maux_flag = 1
+start update internal force
+isAuxPatch: 0
+[31melastic
+[0m[31mplastic
+[0misAuxPatch: 1
+[31melastic
+[0mfinish update internal force
+[33m
+Newton Raphson (factor = 1.000000e+00, delta_factor = 5.000000e-01)
+itr = 0, residual = 1.00000e+00, residual glo = 1.00000e+00, residual loc = 1.00000e+00
+[0m[33mitr = 0, sol norm = 1.94444e-06, sol norm glo = 5.25727e-07, sol norm loc = 1.87202e-06
+
+[0mstart calc K
+isAuxPatch = 0
+end calc K
+start calc K
+isAuxPatch = 1
+end calc K
+start Update_force_vector
+isAuxPatch: 0
+
+[33m=== SIGINT をリモートプロセスに送信します (Ctrl+C 相当) ===[0m
+numactl: 割り込み
+
+ Performance counter stats for 'numactl --localalloc stdbuf -oL ../../src_fast/SIGA.x ../input/APCOM_glo_large_deformation_through_crack.txt ../input/APCOM_loc_large_deformation_through_crack.txt ./option_APCOM_TC_SIGA_ep.ini':
+
+     13,219,331.10 msec task-clock:u                     #   31.113 CPUs utilized             
+                 0      context-switches:u               #    0.000 /sec                      
+                 0      cpu-migrations:u                 #    0.000 /sec                      
+        24,095,732      page-faults:u                    #    1.823 K/sec                     
+41,248,349,486,437      cycles:u                         #    3.120 GHz                         (38.46%)
+   991,283,663,976      stalled-cycles-frontend:u        #    2.40% frontend cycles idle        (38.46%)
+99,269,240,822,229      instructions:u                   #    2.41  insn per cycle            
+                                                  #    0.01  stalled cycles per insn     (38.46%)
+ 8,049,987,015,171      branches:u                       #  608.956 M/sec                       (38.46%)
+    62,912,618,939      branch-misses:u                  #    0.78% of all branches             (38.46%)
+48,884,644,485,172      L1-dcache-loads:u                #    3.698 G/sec                       (38.46%)
+ 2,519,005,194,832      L1-dcache-load-misses:u          #    5.15% of all L1-dcache accesses   (38.46%)
+   <not supported>      LLC-loads:u                                                           
+   <not supported>      LLC-load-misses:u                                                     
+   387,821,000,665      L1-icache-loads:u                #   29.337 M/sec                       (38.46%)
+     1,321,732,809      L1-icache-load-misses:u          #    0.34% of all L1-icache accesses   (38.46%)
+    71,526,862,361      dTLB-loads:u                     #    5.411 M/sec                       (38.46%)
+     2,967,117,194      dTLB-load-misses:u               #    4.15% of all dTLB cache accesses  (38.46%)
+        14,637,505      iTLB-loads:u                     #    1.107 K/sec                       (38.46%)
+        25,623,800      iTLB-load-misses:u               #  175.06% of all iTLB cache accesses  (38.46%)
+
+     424.885427640 seconds time elapsed
+
+   12987.016374000 seconds user
+      90.647892000 seconds sys
+
+
+make: *** [Makefile:152: APCOM_SIGA_large_deformation_through_crack] エラー 130
+
+[36m============================================================[0m
+[36m   結果回収[0m
+[36m============================================================[0m
+[33m--- Remote -> Local 同期 ---[0m
+[36m[Local][0m  rsync実行中...
+receiving incremental file list
+./
+APCOM_aux_large_deformation_through_crack.txt
+              0   0%    0.00kB/s    0:00:00          473,909 100%  225.98MB/s    0:00:00 (xfr#1, to-chk=26/28)
+blending_faces_APCOM_TC.ini
+              0   0%    0.00kB/s    0:00:00              315 100%    7.32kB/s    0:00:00 (xfr#2, to-chk=25/28)
+constant.ini
+              0   0%    0.00kB/s    0:00:00            2,733 100%   58.02kB/s    0:00:00 (xfr#3, to-chk=24/28)
+crack_pair_SIGA_no_crack.txt
+              0   0%    0.00kB/s    0:00:00                6 100%    0.11kB/s    0:00:00 (xfr#4, to-chk=23/28)
+global_patch.xmf2
+              0   0%    0.00kB/s    0:00:00            8,192 100%  145.45kB/s    0:00:00 (xfr#5, to-chk=22/28)
+global_patch_boundary_line.xmf2
+              0 100%    0.00kB/s    0:00:00 (xfr#6, to-chk=21/28)
+global_patch_control_point.xmf2
+              0 100%    0.00kB/s    0:00:00 (xfr#7, to-chk=20/28)
+local_patch.xmf2
+              0   0%    0.00kB/s    0:00:00            8,192 100%  115.94kB/s    0:00:00 (xfr#8, to-chk=19/28)
+local_patch_boundary_line.xmf2
+              0 100%    0.00kB/s    0:00:00 (xfr#9, to-chk=18/28)
+local_patch_control_point.xmf2
+              0 100%    0.00kB/s    0:00:00 (xfr#10, to-chk=17/28)
+log.txt
+              0   0%    0.00kB/s    0:00:00            9,937 100%  122.84kB/s    0:00:00 (xfr#11, to-chk=16/28)
+material_ep.txt
+              0   0%    0.00kB/s    0:00:00           33,046 100%  384.18kB/s    0:00:00 (xfr#12, to-chk=15/28)
+option_APCOM_TC_SIGA_ep.ini
+              0   0%    0.00kB/s    0:00:00              537 100%    4.72kB/s    0:00:00 (xfr#13, to-chk=14/28)
+residual_convergence.txt
+              0   0%    0.00kB/s    0:00:00            1,576 100%   13.27kB/s    0:00:00 (xfr#14, to-chk=13/28)
+bin/
+bin/global_boundary_step0.h5
+              0   0%    0.00kB/s    0:00:00           10,749 100%   68.61kB/s    0:00:00 (xfr#15, to-chk=11/28)
+bin/global_boundary_step1.h5
+              0   0%    0.00kB/s    0:00:00           16,066 100%   99.93kB/s    0:00:00 (xfr#16, to-chk=10/28)
+bin/global_cp_step0.h5
+              0   0%    0.00kB/s    0:00:00           48,375 100%  289.82kB/s    0:00:00 (xfr#17, to-chk=9/28)
+bin/global_cp_step1.h5
+              0   0%    0.00kB/s    0:00:00           48,375 100%  279.53kB/s    0:00:00 (xfr#18, to-chk=8/28)
+bin/global_patch_step0.h5
+              0   0%    0.00kB/s    0:00:00          459,826 100%    2.49MB/s    0:00:00 (xfr#19, to-chk=7/28)
+bin/global_patch_step1.h5
+              0   0%    0.00kB/s    0:00:00        4,019,312 100%   10.95MB/s    0:00:00 (xfr#20, to-chk=6/28)
+bin/local_boundary_step0.h5
+              0   0%    0.00kB/s    0:00:00           15,859 100%   43.26kB/s    0:00:00 (xfr#21, to-chk=5/28)
+bin/local_boundary_step1.h5
+              0   0%    0.00kB/s    0:00:00           26,274 100%   70.88kB/s    0:00:00 (xfr#22, to-chk=4/28)
+bin/local_cp_step0.h5
+              0   0%    0.00kB/s    0:00:00          168,083 100%  446.04kB/s    0:00:00 (xfr#23, to-chk=3/28)
+bin/local_cp_step1.h5
+              0   0%    0.00kB/s    0:00:00          168,083 100%  440.06kB/s    0:00:00 (xfr#24, to-chk=2/28)
+bin/local_patch_step0.h5
+              0   0%    0.00kB/s    0:00:00        2,423,590 100%    5.96MB/s    0:00:00 (xfr#25, to-chk=1/28)
+bin/local_patch_step1.h5
+              0   0%    0.00kB/s    0:00:00       21,145,780  94%   20.17MB/s    0:00:00       22,490,967 100%   20.47MB/s    0:00:01 (xfr#26, to-chk=0/28)
+receiving incremental file list
+remote_log.txt
+              0   0%    0.00kB/s    0:00:00           20,780 100%   19.82MB/s    0:00:00 (xfr#1, to-chk=0/1)
+
+[32m===== 全工程完了 =====[0m

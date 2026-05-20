@@ -1,0 +1,4935 @@
+/****************************************************************
+2017/3    Ver.1.0 荒井作成
+2017/5/18 Ver.2.0 荒井作成
+2022/12/10 Ver.2.1_elongating 合田作成
+--------------------------------------------------------
+領域Vεに散逸するエネルギーを評価するJ積分プログラムです。
+コシマコードと比べると
+1.q値の与え方が異なります。
+2.第三項が現れ、計算を行なっています。
+3.コシマコードで第二項の計算から除外した領域をVεと定義し、定式化した。
+【V2.0変更点】
+1.Vεの領域を断面の半径で設定できるようになりました。
+2.必ずき裂前縁2要素は計算から除外するようにしました。
+3.コシマコードで検討にしようされた使用しない機能削除、省メモリ化しました。
+
+【V2.1_elongating変更点】
+elongating領域の計算ができるようにしました
+六面体一次要素以外は動作しません
+
+【V2.1変更点】
+積分領域の形状変更
+
+【V2.2_pipe_elongating変更点】
+六面体一次要素以外は実装していません
+積分領域が形成されないバグを修正
+elongating領域やIncluding領域を計算するようにしました。（ComputeValueQFunc関数を変更）
+各節点のq値を出力する
+配管形状に沿って積分領域を形成するようにしました（配管の形状や向き、座標に合わせてComputeValueQFunc関数やMake_gradients_q2_Hexa_8関数を書き換えること）
+
+
+【仕様】
+対応要素タイプ：H8,T10,(T4は作ってありますが前段階のコードで局所最小二乗法が動かないので実質使えません)
+要素コネクティビティ：.msh形式
+ガウス点位置、形状関数：ADVENTURE
+
+|z2|     z1     |
+＿＿＿＿＿＿＿＿
+|   /          /
+ーーーーーーー
+|    Vε    |
+ーーーーーー
+
+Z2=0の時長方形の探索領域になる。
+
+[実行例]
+ADVENTURE_J-Integral_largedef_3rdTerm_V2.0.x Layer2.msh Layer2_8.fgr temp_J_int.dat temp_surface.dat Layer2_JI_InputFEMResultData.dat
+material_marc.inp J_Result_New 10 5 0 2 2 2 1.4143 0
+
+[Input]
+Argv[1]:.msh
+Argv[2]:.fgr
+Argv[3]:J_DI_input_data	(temp_J_int.dat)
+Argv[4]:surface_flag	(temp_surface.dat)
+Argv[5]:FEM_result_data	(~~~_JI_InputFEMResultData.dat) 現在亀裂
+Argv[6]:material data	(material_marc.inp)
+Argv[7]:Output File Name
+Argv[8]:RR 	(積分領域の半径)
+Argv[9]:z1
+Argv[10]:z2  台形のはみ出てる部分の長さ(六面体では0で良い)
+Argv[11]:enter the number "1"(small deformation) or "2"(large deformation)  大変形か微小変形かで応力とひずみエネルギ密度の値を変える
+Argv[12]:enter the number "1"(δw/δx-(δσ/δx)(δu/δx)-σ(δ2u/δx2)) or "2"(δw/δx-σ(δ2u/δx2)) or "3"(δw/δx-δ(σ(δu/δx))/δx)
+Argv[13]:enter the number "1"(use σ and dispgrad from gausspoint) or "2"(use σ and dispgrad from nodalpoint) 2を入力すると第二項に用いる応力と変位勾配もガウス点に元々ある値ではなく、節点に与えた値を形状関数を用いてガウス点に与えたものにする。
+Argv[14]:~~mm Vεの断面積の半径の値を引数で入力する。
+Argv[15]:0(基準配置Ver.)or 1(現在配置Ver.)  (0を使うこと。)
+Argv[16]:FEM_result_data	(temp_J_int.dat) 初期亀裂
+Argv[17]:q_result_data
+
+[Output]
+Argv[7]:J積分解析結果
+Integration_Elements_List.out:積分領域可視化用のリスト
+****************************************************************/
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+#include <assert.h>
+#define ERROR				-999
+#define NO_NODES_ON_ELEMENT		10  //1要素あたりの最大節点数(※H20が死んでるのでT10で仮置き（省メモリ化のため)
+#define DIMENSION			3			
+#define POW_Ng			8	     //最大のガウス積分点数 H8,T4,T10
+#define NO_NODES_ON_ELEMENT_T10   10
+#define NO_NODES_ON_ELEMENT_T4   4
+#define NO_NODES_ON_ELEMENT_H8   8
+#define NO_NODES_ON_ELEMENT_H20   20					
+#define KIEL_SIZE			NO_NODES_ON_ELEMENT*DIMENSION
+#define KIEL_SIZE_T10      10*DIMENSION
+#define KIEL_SIZE_T4		4*DIMENSION
+#define KIEL_SIZE_H8      8*DIMENSION
+#define KIEL_SIZE_H20	20*DIMENSION
+#define D_MATRIX_SIZE		6	
+
+#define N_STRAIN			6
+#define N_STRESS			6
+#define MAX_N_ELEMENT		1000000
+#define MAX_N_NODE			1000000
+#define MAX_K_WHOLE_SIZE		MAX_N_NODE*DIMENSION
+
+#define REMEVE_LAYER_ELEMENTS 2 //最低2層要素抜く
+
+double  E=210000.0; // Young's modulus
+double  nu=0.3; // Poisson's ratio
+//read fgr
+static int Number_of_Nodes_on_Elements;
+static int N_Face_Nodes;
+static int ElementShape=0;
+static int ElementOrder;
+static int N_IntegrationPoint;
+static int N_Vertex_Nodes;
+
+static int NElements;
+static int NNodes;		
+static double Displacement[MAX_N_NODE][DIMENSION];
+static int ElementNodeId_s[MAX_N_ELEMENT][NO_NODES_ON_ELEMENT];
+static double Node_Coordinate[MAX_N_NODE][DIMENSION];
+static double Strain[MAX_N_ELEMENT][POW_Ng][N_STRAIN];
+static double Stress[MAX_N_ELEMENT][POW_Ng][DIMENSION][DIMENSION];
+static double Pai[MAX_N_ELEMENT][POW_Ng][DIMENSION][DIMENSION];
+static double Def_grad[MAX_N_ELEMENT][POW_Ng][DIMENSION][DIMENSION];
+static double Def_grad_In[MAX_N_ELEMENT][POW_Ng][DIMENSION][DIMENSION];
+static double I[MAX_N_ELEMENT][POW_Ng][DIMENSION][DIMENSION];
+static double W[MAX_N_ELEMENT][POW_Ng];
+static double JJ[MAX_N_ELEMENT][POW_Ng];
+static double JW[MAX_N_ELEMENT][POW_Ng];
+static double Gxi_coord[MAX_N_ELEMENT][POW_Ng][DIMENSION];
+static double JW_on_Node[MAX_N_NODE][1];
+static double Pai_on_Node[MAX_N_NODE][3][3];
+static double Disp_grad_1_on_Node[MAX_N_NODE][3];
+static double Disp_grad_2_on_Node[MAX_N_NODE][3];
+static double Disp_grad_3_on_Node[MAX_N_NODE][3];
+static double W_1_on_Node[MAX_N_NODE][3];
+static double W_2_on_Node[MAX_N_NODE][3];
+static double W_3_on_Node[MAX_N_NODE][3];
+static double W_grad_1[MAX_N_ELEMENT][POW_Ng];
+static double W_grad_2[MAX_N_ELEMENT][POW_Ng];
+static double W_grad_3[MAX_N_ELEMENT][POW_Ng];
+static double gradients_Pai[MAX_N_ELEMENT][POW_Ng][DIMENSION][DIMENSION];
+static double Disp_2grad_1[MAX_N_ELEMENT][POW_Ng][DIMENSION][DIMENSION];
+static double Disp_2grad_2[MAX_N_ELEMENT][POW_Ng][DIMENSION][DIMENSION];
+static double Disp_2grad_3[MAX_N_ELEMENT][POW_Ng][DIMENSION][DIMENSION];
+static double q2_gp[MAX_N_ELEMENT][POW_Ng];
+static double Pai_grad_disp_grad_1[MAX_N_ELEMENT][POW_Ng];
+static double Pai_grad_disp_grad_2[MAX_N_ELEMENT][POW_Ng];
+static double Pai_grad_disp_grad_3[MAX_N_ELEMENT][POW_Ng];
+static double Pai_disp_2grad_1[MAX_N_ELEMENT][POW_Ng];
+static double Pai_disp_2grad_2[MAX_N_ELEMENT][POW_Ng];
+static double Pai_disp_2grad_3[MAX_N_ELEMENT][POW_Ng];
+static double second_eq_1_without_q[MAX_N_ELEMENT][POW_Ng];
+static double second_eq_2_without_q[MAX_N_ELEMENT][POW_Ng];
+static double second_eq_3_without_q[MAX_N_ELEMENT][POW_Ng];
+static double second_eq_1[MAX_N_ELEMENT][POW_Ng];
+static double second_eq_2[MAX_N_ELEMENT][POW_Ng];
+static double second_eq_3[MAX_N_ELEMENT][POW_Ng];
+
+//J_Integral
+static double Disp_grad_1[MAX_N_ELEMENT][POW_Ng][DIMENSION];
+static double Disp_grad_2[MAX_N_ELEMENT][POW_Ng][DIMENSION];
+static double Disp_grad_3[MAX_N_ELEMENT][POW_Ng][DIMENSION];
+static double W_1[MAX_N_ELEMENT][POW_Ng][DIMENSION];
+static double W_2[MAX_N_ELEMENT][POW_Ng][DIMENSION];
+static double W_3[MAX_N_ELEMENT][POW_Ng][DIMENSION];
+static double W_K_D1[MAX_N_ELEMENT][POW_Ng][DIMENSION];
+static double W_K_D2[MAX_N_ELEMENT][POW_Ng][DIMENSION];
+static double W_K_D3[MAX_N_ELEMENT][POW_Ng][DIMENSION];
+static double P_1j[MAX_N_ELEMENT][POW_Ng][DIMENSION];
+static double P_2j[MAX_N_ELEMENT][POW_Ng][DIMENSION];
+static double P_3j[MAX_N_ELEMENT][POW_Ng][DIMENSION];
+static double q2[MAX_N_NODE][500];
+static double gradients_q2[MAX_N_ELEMENT][POW_Ng][DIMENSION];
+static double P_1j_gradients_q2[MAX_N_ELEMENT][POW_Ng];
+static double P_2j_gradients_q2[MAX_N_ELEMENT][POW_Ng];
+static double P_3j_gradients_q2[MAX_N_ELEMENT][POW_Ng];
+double dA;
+static double J_Integral_scalar;
+static double J_Integral_scalar_1;
+static double J_Integral_scalar_2;
+static double J_Integral_scalar1, J_Integral_scalar2, J_Integral_scalar3;
+static double J_Integral_scalar_1_1, J_Integral_scalar_1_2, J_Integral_scalar_1_3;
+static double J_Integral_scalar_2_1, J_Integral_scalar_2_2, J_Integral_scalar_2_3;
+static double av_d;
+
+double grad_W_1[MAX_N_ELEMENT][POW_Ng][DIMENSION];
+double grad_W_2[MAX_N_ELEMENT][POW_Ng][DIMENSION];
+double grad_W_3[MAX_N_ELEMENT][POW_Ng][DIMENSION];
+double grad_Pai_and_disp_grad_1[MAX_N_ELEMENT][POW_Ng];
+double grad_Pai_and_disp_grad_2[MAX_N_ELEMENT][POW_Ng];
+double grad_Pai_and_disp_grad_3[MAX_N_ELEMENT][POW_Ng];
+
+static double Disp_grad_1_use_same_method[MAX_N_ELEMENT][POW_Ng][DIMENSION];
+static double Disp_grad_2_use_same_method[MAX_N_ELEMENT][POW_Ng][DIMENSION];
+static double Disp_grad_3_use_same_method[MAX_N_ELEMENT][POW_Ng][DIMENSION];
+static double Pai_use_same_method[MAX_N_ELEMENT][POW_Ng][DIMENSION][DIMENSION];
+
+//added 3term
+static double J_Integral_3rdTerm;
+
+double unbalanceforce[MAX_N_NODE*DIMENSION];
+int Crack_Front_Flag[MAX_N_NODE]={0}; //関数[NotPerformonCrackFront]で使用する。き裂前縁の節点を含む要素を構成する節点にフラグを立てる。
+int Crack_Front_Flag2[MAX_N_NODE]={0}; 
+
+static int crack_node[MAX_N_NODE], Ncrack_node;
+static int crack_node2[MAX_N_NODE], Ncrack_node2;
+//crack front local coordinate vectors at node
+static double crack_node_vec[MAX_N_NODE][3][3];
+static double crack_node_vec2[MAX_N_NODE][3][3];
+static int Surface_flag[MAX_N_NODE]={0};
+static int DispMode;
+
+
+double RR, temp_z1, temp_z2;
+int deform, second_eq_type, method;
+double Ave_CrackFrontMeshLength_H8;
+double V_ep_radius;
+int Search_AreaFlag[MAX_N_NODE][500];
+
+#define MAX_FACES 100000
+#define MAX_SEGS_CRACK 5000
+#define MAX_CRACKS 20
+
+static int NCrack_Front =0;	//Number of crack front
+static int NCrack_Front2 =0; //Number of initial crack front	
+static int CrackFrontSegments_For_Jint[MAX_CRACKS][MAX_SEGS_CRACK][3]={0};  // Crack front segments (nodes) for J integral computation  NCrack
+static int CrackFrontSegments_For_Jint2[MAX_CRACKS][MAX_SEGS_CRACK][3]={0};  // initial Crack front segments (nodes) for J integral computation  NCrack
+static int Crack_N_Segments[MAX_CRACKS]={0};	// Number of Segments on Each Crack
+static int Crack_N_Segments2[MAX_CRACKS]={0};	// Number of Segments on Each intial Crack
+static double LocalCoodVecsCF[MAX_CRACKS][MAX_SEGS_CRACK][3][3][3] = {0.0};  //Basis vectors at the crack front nodes
+static double LocalCoodVecsCF2[MAX_CRACKS][MAX_SEGS_CRACK][3][3][3] = {0.0};  //Basis vectors at the initial crack front nodes
+static int Flag_Vep_Nodes[MAX_N_NODE][500];
+
+//可視化用
+#define MAX_NODES_CRACK_FRONT 500
+#define MAX_INTEGRATION_ELEMENTS 100000
+#define MAX_V_EP_ELEMENTS 10000
+static int Integration_Element[MAX_NODES_CRACK_FRONT][MAX_INTEGRATION_ELEMENTS];
+static int N_Integration_Elements[MAX_NODES_CRACK_FRONT]={0};
+static int N_V_ep_Elements[MAX_NODES_CRACK_FRONT]={0};
+static int List_of_V_ep_Elements[MAX_NODES_CRACK_FRONT][MAX_V_EP_ELEMENTS];
+
+/***********************************************************************
+						ファイル読み込み
+***********************************************************************/
+//ADVENTURE形式の.fgrファイル読み込み
+static void ReadFgr (const char *fileName)
+{
+	FILE *fp;
+
+	fp = fopen (fileName, "r");
+	if (fp == NULL) {
+			fprintf (stderr, " file %s not found \n", fileName);
+			exit (1);
+	}
+
+	fscanf (fp, "%d", &Number_of_Nodes_on_Elements);
+	switch(Number_of_Nodes_on_Elements){
+		case 4:{
+			printf("Elemet Type=T4\n");
+			N_Face_Nodes=3;
+			ElementShape=3;
+			ElementOrder=1;
+			N_IntegrationPoint=1;
+			N_Vertex_Nodes=4;
+			break;
+		}
+		case 10:{
+			printf("Elemet Type=T10\n");
+			N_Face_Nodes=6;
+			ElementShape=3;
+			ElementOrder=2;
+			N_IntegrationPoint=4;
+			N_Vertex_Nodes=4;
+			break;
+		}
+		case 8:{
+			printf("Elemet Type=H8\n");
+			N_Face_Nodes=4;
+			ElementShape=4;
+			ElementOrder=1;
+			N_IntegrationPoint=8;
+			N_Vertex_Nodes=8;
+			break;
+		}
+		case 20:{
+			printf("Elemet Type=H20\n");
+			N_Face_Nodes=8;
+			ElementShape=4;
+			ElementOrder=2;
+			N_IntegrationPoint=27;
+			N_Vertex_Nodes=8;
+			break;
+		}
+	}
+	fclose (fp);
+}
+//ADVENTUREからのmeshファイルを取得
+void read_file_msh(const char *fileName)
+{
+  	FILE *fp;
+	int iElement;
+	int iNode;
+
+	fp = fopen (fileName, "r");
+	if (fp == NULL) {
+			fprintf (stderr, " file %s not found ¥n", fileName);
+			exit (1);
+	}
+
+	fscanf (fp, "%d", &NElements);
+
+	switch(Number_of_Nodes_on_Elements){
+	  case 4:{
+		for (iElement = 0; iElement < NElements; iElement++)
+		{
+		  fscanf (fp, "%d %d %d %d", &ElementNodeId_s[iElement][0],&ElementNodeId_s[iElement][1],&ElementNodeId_s[iElement][2],&ElementNodeId_s[iElement][3]);
+		}
+		break;
+	  }
+	  case 10:{
+		for (iElement = 0; iElement < NElements; iElement++)
+		{
+		  fscanf (fp, "%d %d %d %d %d %d %d %d %d %d", &ElementNodeId_s[iElement][0],&ElementNodeId_s[iElement][1],
+			&ElementNodeId_s[iElement][2],&ElementNodeId_s[iElement][3],&ElementNodeId_s[iElement][4],&ElementNodeId_s[iElement][5],
+			&ElementNodeId_s[iElement][6],&ElementNodeId_s[iElement][7],&ElementNodeId_s[iElement][8],&ElementNodeId_s[iElement][9]);
+		}
+		break;
+	  }
+	  case 8:{
+		for (iElement = 0; iElement < NElements; iElement++){
+		  for (iNode = 0; iNode < Number_of_Nodes_on_Elements; iNode++){
+			fscanf (fp, "%d", &ElementNodeId_s[iElement][iNode]);
+		  }
+		}
+		break;
+	  }
+	  case 20:{
+		for (iElement = 0; iElement < NElements; iElement++){
+		  for (iNode = 0; iNode < Number_of_Nodes_on_Elements; iNode++){
+			fscanf (fp, "%d", &ElementNodeId_s[iElement][iNode]);
+		  }
+		}
+		break;
+	  }
+  }
+
+	fscanf (fp, "%d", &NNodes);
+	for (iNode = 0; iNode < NNodes; iNode++) {
+		fscanf (fp, "%le %le %le",
+			&Node_Coordinate[iNode][0],&Node_Coordinate[iNode][1],&Node_Coordinate[iNode][2]);
+	}
+
+
+  	fclose(fp);
+}
+//Material data 読み込み
+void material_data(const char *material_inp, double *E, double *nu){
+  	FILE *fp;
+  	char Temp[80];
+  	int i, iMat, jmat;
+  	double temp_val;
+
+  	fp = fopen (material_inp, "r");
+  	fscanf(fp,"%d",&iMat);
+
+  	for(i=0; i < iMat; i++)
+    	{
+      	fscanf(fp,"%s %d %lf",Temp, &jmat, &temp_val);
+      	printf("%s %d %f\n",Temp, jmat, temp_val);
+      	if(i==0) *E=temp_val;
+      	if(i==1) *nu=temp_val;
+    	}
+
+  	fclose(fp);
+}
+
+int CrackFrontFlag(int elementId, int nodes_count, int flag_num)
+{
+  	int ii,icount=0;
+
+  	for(ii=0;ii<nodes_count;ii++)
+    		if(Crack_Front_Flag[ ElementNodeId_s[elementId][ii]]!= 0 && Crack_Front_Flag[ ElementNodeId_s[elementId][ii]]!= flag_num) icount++;
+
+  	if(icount != 0){
+    		for(ii=0;ii<nodes_count;ii++){
+      		if(Crack_Front_Flag[ ElementNodeId_s[elementId][ii]]== 0){
+        			Crack_Front_Flag[ ElementNodeId_s[elementId][ii]]=flag_num;
+      		}
+    		}
+  	}
+}
+//J_DI_input...で作成したファイルの読み込み
+void reading_J_DI_input_data(const char *fileName, const char *fileName2)
+{
+  	int iCrack, iiSeg, iElement;
+  	int ii,jj,kk,iOrder;
+  	int temp_order_of_E;
+  	FILE *fp_crack;
+	FILE *fp_crack2;
+  	fp_crack = fopen(fileName,"r");
+  	int EOrder=ElementOrder+1;
+
+	fscanf(fp_crack," %d",&temp_order_of_E);
+  	fscanf(fp_crack," %d",&NCrack_Front);
+
+  	for(iCrack=0; iCrack < NCrack_Front; iCrack++){
+      	fscanf(fp_crack," %d", &Crack_N_Segments[iCrack]);
+      	for(iiSeg=0; iiSeg < Crack_N_Segments[iCrack]; iiSeg++)
+		{
+			for(iOrder=0;iOrder<EOrder;iOrder++){
+	  			fscanf(fp_crack,"%d",&CrackFrontSegments_For_Jint[iCrack][iiSeg][iOrder]);
+	  			Crack_Front_Flag[CrackFrontSegments_For_Jint[iCrack][iiSeg][iOrder]]=1;//き裂前縁の節点にフラグ
+	  		}
+
+	  		for(ii=0; ii<EOrder; ii++){
+	      		for(jj=0; jj<3; jj++){
+					for(kk=0; kk<3; kk++){
+						fscanf(fp_crack,"  %lf",  &LocalCoodVecsCF[iCrack][iiSeg][ii][jj][kk]);
+					}
+	     	 	}
+	    	}
+		}
+    }
+
+  	fclose(fp_crack);
+
+	fp_crack2 = fopen(fileName2,"r");
+	fscanf(fp_crack2," %d",&temp_order_of_E);
+  	fscanf(fp_crack2," %d",&NCrack_Front2);
+
+	for(iCrack=0; iCrack < NCrack_Front2; iCrack++){
+      	fscanf(fp_crack2," %d", &Crack_N_Segments2[iCrack]);
+      	for(iiSeg=0; iiSeg < Crack_N_Segments2[iCrack]; iiSeg++)
+		{
+			for(iOrder=0;iOrder<EOrder;iOrder++){
+	  			fscanf(fp_crack2,"%d",&CrackFrontSegments_For_Jint2[iCrack][iiSeg][iOrder]);
+	  			Crack_Front_Flag2[CrackFrontSegments_For_Jint2[iCrack][iiSeg][iOrder]]=100;//初期き裂前縁の節点にフラグ100
+				
+				
+				printf("inital_crack_front_segment %d %d %d nodeid= %d\n ",iCrack,iiSeg,iOrder,CrackFrontSegments_For_Jint2[iCrack][iiSeg][iOrder]);
+
+
+	  		}
+
+	  		for(ii=0; ii<EOrder; ii++){
+	      		for(jj=0; jj<3; jj++){
+					for(kk=0; kk<3; kk++){
+						fscanf(fp_crack2,"  %lf",  &LocalCoodVecsCF2[iCrack][iiSeg][ii][jj][kk]);
+					}
+	     	 	}
+	    	}
+		}
+    }
+
+	fclose(fp_crack2);
+
+  	for (iElement = 0; iElement < NElements; iElement++){
+    		CrackFrontFlag(iElement, Number_of_Nodes_on_Elements, 2);//き裂前縁から二個目の節点にフラグ
+  	}
+  	for (iElement = 0; iElement < NElements; iElement++){
+    		CrackFrontFlag(iElement, Number_of_Nodes_on_Elements, 3);//き裂前縁から三個目の節点にフラグ
+  	}
+  	for (iElement = 0; iElement < NElements; iElement++){
+    		CrackFrontFlag(iElement, Number_of_Nodes_on_Elements, 4);//き裂前縁から四個目の節点にフラグ
+  	}
+}
+
+//inputしたものをそのまま書き出してる？？？
+void writing_J_DI_input_data(void)
+{
+    int iCrack, iiSeg;
+    int ii,jj,kk,iOrder;
+   	char file_name[]="J_int_DI.dat_check";
+    FILE *fp_crack;
+    fp_crack = fopen(file_name,"w");
+  	int EOrder=ElementOrder+1;
+
+    	fprintf(fp_crack," %d\n",NCrack_Front);
+    	for(iCrack=0; iCrack < NCrack_Front; iCrack++)
+     {
+		fprintf(fp_crack," %d\n", Crack_N_Segments[iCrack]);
+		for(iiSeg=0; iiSeg < Crack_N_Segments[iCrack]; iiSeg++)
+	  	{
+	  		for(iOrder=0;iOrder<EOrder;iOrder++){
+	    			fprintf(fp_crack," %d ",CrackFrontSegments_For_Jint[iCrack][iiSeg][iOrder]);
+	    		}
+	    		fprintf(fp_crack,"\n");
+
+	    		for(ii=0; ii<EOrder; ii++)
+	      	{
+				for(jj=0; jj<3; jj++)
+				{
+		  			for(kk=0; kk<3; kk++){
+		  				fprintf(fp_crack,"  %15.8e",  LocalCoodVecsCF[iCrack][iiSeg][ii][jj][kk]);
+		  			}
+				}
+				fprintf(fp_crack,"\n");
+	      	}
+	  	}
+     }
+    	fclose(fp_crack);
+}
+//き裂前縁を順番にCrack_Nodeに格納、crack_node_vecに辺の両端の節点の局所座標系を足して2で割ったものを格納
+void settingCrackFrontNode(void)
+{
+  	int iCrack,iiCount=0;
+	int iCrack2,iiCount2=0;
+  	int iiSeg,ii,jj;
+
+  	if(ElementOrder==1){
+  		for(iCrack=0; iCrack < NCrack_Front; iCrack++)
+  		{
+  			if(Surface_flag[CrackFrontSegments_For_Jint[iCrack][0][0]]==0){
+  				crack_node[iiCount] = CrackFrontSegments_For_Jint[iCrack][0][0];
+  				printf("quarter mode!! NodeID:%d (%lf %lf %lf)\nVector( ",crack_node[iiCount],Node_Coordinate[crack_node[iiCount]][0],
+  																		Node_Coordinate[crack_node[iiCount]][1],Node_Coordinate[crack_node[iiCount]][2]);
+  				for(ii=0; ii<3; ii++){
+					for(jj=0; jj<3; jj++){
+	  					crack_node_vec[iiCount][ii][jj] = LocalCoodVecsCF[iCrack][0][0][ii][jj];
+	  					printf("%lf ",crack_node_vec[iiCount][ii][jj] );
+					}
+					printf("|");
+	  			}
+	  			printf(")\n");
+	  			iiCount++;
+  			}
+
+    			for(iiSeg=0; iiSeg < Crack_N_Segments[iCrack]-1; iiSeg++)
+    			{
+      			crack_node[iiCount] = CrackFrontSegments_For_Jint[iCrack][iiSeg][1];
+      			//printf("CrackNode=%d\n", crack_node[iiCount]);
+      			for(ii=0; ii<3; ii++){
+					for(jj=0; jj<3; jj++){
+	  					crack_node_vec[iiCount][ii][jj] = (LocalCoodVecsCF[iCrack][iiSeg][1][ii][jj] + LocalCoodVecsCF[iCrack][iiSeg+1][0][ii][jj])*0.5;
+	  					//printf("%lf ",crack_node_vec[iiCount][ii][jj] );
+					}//printf("\n");
+	  			}
+      		iiCount++;
+    			}
+
+    			if(Surface_flag[CrackFrontSegments_For_Jint[iCrack][Crack_N_Segments[iCrack]-1][1]]==0){
+  				crack_node[iiCount] = CrackFrontSegments_For_Jint[iCrack][Crack_N_Segments[iCrack]-1][1];
+  			  	printf("quarter mode!! NodeID:%d (%lf %lf %lf)\nVector( ",crack_node[iiCount],Node_Coordinate[crack_node[iiCount]][0],
+  																		Node_Coordinate[crack_node[iiCount]][1],Node_Coordinate[crack_node[iiCount]][2]);
+  				for(ii=0; ii<3; ii++){
+					for(jj=0; jj<3; jj++){
+	  					crack_node_vec[iiCount][ii][jj] = LocalCoodVecsCF[iCrack][CrackFrontSegments_For_Jint[iCrack][Crack_N_Segments[iCrack]-1][1]][1][ii][jj];
+	  					printf("%lf ",crack_node_vec[iiCount][ii][jj] );
+					}
+					printf("|");
+	  			}
+	  			printf(")\n");
+	  			iiCount++;
+  			}
+  		}
+ 		Ncrack_node = iiCount;
+
+
+
+    /////////////////inital crack////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+		for(iCrack=0; iCrack < NCrack_Front2; iCrack++){
+  			if(Surface_flag[CrackFrontSegments_For_Jint2[iCrack][0][0]]==0){
+  				crack_node2[iiCount2] = CrackFrontSegments_For_Jint2[iCrack][0][0];
+  				printf("quarter mode!! initial_crack_NodeID:%d (%lf %lf %lf)\nVector( ",crack_node2[iiCount2],Node_Coordinate[crack_node2[iiCount2]][0],
+  																		Node_Coordinate[crack_node2[iiCount2]][1],Node_Coordinate[crack_node2[iiCount2]][2]);
+  				for(ii=0; ii<3; ii++){
+					for(jj=0; jj<3; jj++){
+	  					crack_node_vec2[iiCount2][ii][jj] = LocalCoodVecsCF2[iCrack][0][0][ii][jj];
+	  					printf("%lf ",crack_node_vec2[iiCount2][ii][jj] );
+					}
+					printf("|");
+	  			}
+	  			printf(")\n");
+	  			iiCount2++;
+  			}
+
+    			for(iiSeg=0; iiSeg < Crack_N_Segments2[iCrack]-1; iiSeg++)
+    			{
+      			crack_node2[iiCount2] = CrackFrontSegments_For_Jint2[iCrack][iiSeg][1];
+      			//printf("CrackNode=%d\n", crack_node[iiCount]);
+      			for(ii=0; ii<3; ii++){
+					for(jj=0; jj<3; jj++){
+	  					crack_node_vec2[iiCount2][ii][jj] = (LocalCoodVecsCF2[iCrack][iiSeg][1][ii][jj] + LocalCoodVecsCF2[iCrack][iiSeg+1][0][ii][jj])*0.5;
+	  					//printf("%lf ",crack_node_vec[iiCount][ii][jj] );
+					}//printf("\n");
+	  			}
+      		iiCount2++;
+    			}
+
+    			if(Surface_flag[CrackFrontSegments_For_Jint2[iCrack][Crack_N_Segments2[iCrack]-1][1]]==0){
+  				crack_node2[iiCount2] = CrackFrontSegments_For_Jint2[iCrack][Crack_N_Segments2[iCrack]-1][1];
+  			  	printf("quarter mode!! initial_crack_NodeID:%d (%lf %lf %lf)\nVector( ",crack_node2[iiCount2],Node_Coordinate[crack_node2[iiCount2]][0],
+  																		Node_Coordinate[crack_node2[iiCount2]][1],Node_Coordinate[crack_node2[iiCount2]][2]);
+  				for(ii=0; ii<3; ii++){
+					for(jj=0; jj<3; jj++){
+	  					crack_node_vec2[iiCount2][ii][jj] = LocalCoodVecsCF2[iCrack][CrackFrontSegments_For_Jint2[iCrack][Crack_N_Segments2[iCrack]-1][1]][1][ii][jj];
+	  					printf("%lf ",crack_node_vec2[iiCount2][ii][jj] );
+					}
+					printf("|");
+	  			}
+	  			printf(")\n");
+	  			iiCount2++;
+  			}
+  		}
+ 		Ncrack_node2 = iiCount2;
+
+  	}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+  	else if(ElementOrder==2){
+  		for(iCrack=0; iCrack < NCrack_Front; iCrack++)
+  		{
+  			if(Surface_flag[CrackFrontSegments_For_Jint[iCrack][0][0]]==0){
+  				crack_node[iiCount] = CrackFrontSegments_For_Jint[iCrack][0][0];
+  				printf("quarter mode!! NodeID:%d (%lf %lf %lf)\nVector( ",crack_node[iiCount],Node_Coordinate[crack_node[iiCount]][0],
+  																		Node_Coordinate[crack_node[iiCount]][1],Node_Coordinate[crack_node[iiCount]][2]);
+  				for(ii=0; ii<3; ii++){
+					for(jj=0; jj<3; jj++){
+	  					crack_node_vec[iiCount][ii][jj] = LocalCoodVecsCF[iCrack][0][0][ii][jj];
+	  					printf("%lf ",crack_node_vec[iiCount][ii][jj] );
+					}
+					printf("|");
+	  			}
+	  			printf(")\n");
+	  			iiCount++;
+  			}
+    			
+    			for(iiSeg=0; iiSeg < Crack_N_Segments[iCrack]-1; iiSeg++)
+    			{
+      			crack_node[iiCount] = CrackFrontSegments_For_Jint[iCrack][iiSeg][2];
+      			//printf("CrackNode=%d\n", crack_node[iiCount]);
+      			for(ii=0; ii<3; ii++){
+					for(jj=0; jj<3; jj++){
+	  					crack_node_vec[iiCount][ii][jj] = (LocalCoodVecsCF[iCrack][iiSeg][2][ii][jj] + LocalCoodVecsCF[iCrack][iiSeg+1][0][ii][jj])*0.5;
+						 //printf("%lf ",crack_node_vec[iiCount][ii][jj] );
+					}//printf("\n");
+	  			}
+      		iiCount++;
+    			}
+
+    			if(Surface_flag[CrackFrontSegments_For_Jint[iCrack][Crack_N_Segments[iCrack]-1][2]]==0){
+  				crack_node[iiCount] = CrackFrontSegments_For_Jint[iCrack][Crack_N_Segments[iCrack]-1][2];
+  			  	printf("quarter mode!! NodeID:%d (%lf %lf %lf)\nVector( ",crack_node[iiCount],Node_Coordinate[crack_node[iiCount]][0],
+  																		Node_Coordinate[crack_node[iiCount]][1],Node_Coordinate[crack_node[iiCount]][2]);
+  				for(ii=0; ii<3; ii++){
+					for(jj=0; jj<3; jj++){
+	  					crack_node_vec[iiCount][ii][jj] = LocalCoodVecsCF[iCrack][CrackFrontSegments_For_Jint[iCrack][Crack_N_Segments[iCrack]-1][2]][1][ii][jj];
+	  					printf("%lf ",crack_node_vec[iiCount][ii][jj] );
+					}
+					printf("|");
+	  			}
+	  			printf(")\n");
+	  			iiCount++;
+  			}
+  		}
+ 		Ncrack_node = iiCount;
+  	}
+}
+
+//表面節点のフラグを読み込む。
+void read_surface_flag(const char *fileName)
+{	
+  	int iNode,nnode;
+  	//	int Surface_flag[MAX_N_NODE];
+  	//char file_name[80]="Data/J_outer_surface_flag.inp";
+  	FILE *fp_face;
+  	fp_face = fopen(fileName,"r");
+  	if (fp_face == NULL){
+    		fprintf (stderr, "file %s not found \n", fileName);
+    		exit(1);
+  	}
+
+  	fscanf(fp_face,"%d",&nnode); //総節点
+  	printf("check_surface_flag nnode=%d\n",nnode);
+  	for(iNode = 0; iNode < NNodes; iNode++){
+    		fscanf(fp_face,"%d",&Surface_flag[iNode]); //各節点に0(内部）or1(表面)のフラグがあるので読み込み
+  	}
+  	fclose(fp_face);
+}
+/***き裂前縁の節点座標からき裂前縁の平均メッシュサイズを計算する***/
+void make_mesh_size(){
+  	int n;
+  	double xc,yc,zc;
+  	double xxc,yyc,zzc;
+  	double d_x,d_y,d_z,D;
+  	for(n=0;n<Ncrack_node-1;n++){
+    		xc = Node_Coordinate[crack_node[n]][0];
+    		yc = Node_Coordinate[crack_node[n]][1];                     //き裂先端節点座標
+    		zc = Node_Coordinate[crack_node[n]][2];
+    		xxc = Node_Coordinate[crack_node[n+1]][0];
+    		yyc = Node_Coordinate[crack_node[n+1]][1];
+    		zzc = Node_Coordinate[crack_node[n+1]][2];
+    		d_x=xxc-xc;
+    		d_y=yyc-yc;
+    		d_z=zzc-zc;
+    		D+=sqrt(d_x*d_x + d_y*d_y + d_z*d_z);
+  	}
+  	av_d=D/(Ncrack_node-1);
+  	printf("crack front average %10.10e\n",av_d);
+}
+
+//（き裂前縁の線分の長さ×線分両端の節点のq値の合計÷2）をき裂前縁のすべての線分で計算して足しこんだものを返す。
+double Compute_dA(int nn)
+{
+  	int icrack=0, iseg=0,idir;
+  	double ddAA=0.0;
+  	double coord0[3],coord2[3];
+  	int node0,node2;
+  	double qq0, qq2, length;
+
+  	if(ElementOrder==1){
+  		for(icrack=0; icrack<NCrack_Front; icrack++){
+    			for(iseg=0; iseg<Crack_N_Segments[icrack]; iseg++){
+      			node0 = CrackFrontSegments_For_Jint[icrack][iseg][0];
+      			node2 = CrackFrontSegments_For_Jint[icrack][iseg][1];
+      			qq0 = q2[node0][nn];
+      			qq2 = q2[node2][nn];
+
+      			for(idir=0; idir<3; idir++){
+					coord0[idir] = Node_Coordinate[node0][idir];
+					coord2[idir] = Node_Coordinate[node2][idir];
+      			}
+
+      			length = sqrt((coord0[0]-coord2[0])*(coord0[0]-coord2[0])
+		    					+(coord0[1]-coord2[1])*(coord0[1]-coord2[1])
+		    					+(coord0[2]-coord2[2])*(coord0[2]-coord2[2]));
+      			ddAA += 0.5*length*(qq0 + qq2);
+    			}
+    		}
+  	}
+
+  	else if(ElementOrder==2){
+  		for(icrack=0; icrack<NCrack_Front; icrack++){
+    			for(iseg=0; iseg<Crack_N_Segments[icrack]; iseg++){
+      			node0 = CrackFrontSegments_For_Jint[icrack][iseg][0];
+      			node2 = CrackFrontSegments_For_Jint[icrack][iseg][2];
+      			qq0 = q2[node0][nn];
+      			qq2 = q2[node2][nn];
+
+      			for(idir=0; idir<3; idir++){
+					coord0[idir] = Node_Coordinate[node0][idir];
+					coord2[idir] = Node_Coordinate[node2][idir];
+      			}
+      			length = sqrt((coord0[0]-coord2[0])*(coord0[0]-coord2[0])
+		    					+(coord0[1]-coord2[1])*(coord0[1]-coord2[1])
+		    					+(coord0[2]-coord2[2])*(coord0[2]-coord2[2]));
+      			ddAA += 0.5*length*(qq0 + qq2);
+    			}
+    		}
+  	}
+
+    //ddAA=temp_z1*2/2*1;
+  return(ddAA);
+}
+
+/************************************************************************
+  解析結果読み込み＋Pre処理で作成した節点に格納した各種データの読み込み
+**************************************************************************/
+void Get_InputData_from_FEM(const char *fileName){
+	
+	int i,j,k;
+	FILE *fp;
+	if ((fp = fopen(fileName, "r")) == NULL)	printf("file open error!!¥n");
+
+	//変位
+	for(j = 0; j < NNodes; j++ ){
+		for(i = 0; i < DIMENSION; i++ ){
+			fscanf(fp, "%le¥t ",&Displacement[j][i]);
+		}
+	}
+	//ひずみ
+	for( i = 0; i < NElements; i++ ){
+		for( k = 0; k < N_IntegrationPoint; k++){
+			for( j = 0; j < N_STRAIN; j++ ){
+				fscanf(fp, "%le ",&Strain[i][k][j]);
+			}
+		}
+	}
+	//応力
+	for( i = 0; i < NElements; i++ ){
+		for( k = 0; k < N_IntegrationPoint; k++){
+		  //応力を6成分から9成分に//
+		  fscanf(fp, "%le ",&Stress[i][k][0][0]);
+		  fscanf(fp, "%le ",&Stress[i][k][1][1]);
+		  fscanf(fp, "%le ",&Stress[i][k][2][2]);
+		  fscanf(fp, "%le ",&Stress[i][k][0][1]);
+		  fscanf(fp, "%le ",&Stress[i][k][1][2]);
+		  fscanf(fp, "%le ",&Stress[i][k][2][0]);
+		  Stress[i][k][1][0]=Stress[i][k][0][1];
+		  Stress[i][k][2][1]=Stress[i][k][1][2];
+		  Stress[i][k][0][2]=Stress[i][k][2][0];
+		}
+	}
+	//ひずみエネルギー密度
+	for( i = 0; i < NElements; i++ ){
+		for( k = 0; k < N_IntegrationPoint; k++ ){
+			fscanf(fp, "%le", &W[i][k]);
+		}
+	}
+	//	Output_Stress_Data();
+	fclose(fp);
+}
+
+int Get_InputData_W_on_Node(){
+	int i;
+	FILE *fp;
+	if ((fp = fopen("W_on_Node.dat", "r")) == NULL)	printf("file open error!!¥n");
+
+	fscanf (fp, "%d", &i);
+	for(i = 0; i < NNodes; i++ ){
+		fscanf(fp, "%le",&JW_on_Node[i][0]);
+	}
+	//printf("JW_on_Node[0][0]=%le\n", JW_on_Node[0][0]);
+   	fclose(fp);
+}
+
+int Get_InputData_Pai_on_Node(){
+	int i, j, k;
+	FILE *fp;
+	if ((fp = fopen("Pai_on_Node.dat", "r")) == NULL)	printf("file open error!!¥n");
+
+	fscanf (fp, "%d", &i);
+	for(i = 0; i < NNodes; i++ ){
+		for(j = 0; j < DIMENSION; j++ ){
+			for(k = 0; k < DIMENSION; k++ ){
+				fscanf(fp, "%le",&Pai_on_Node[i][j][k]);
+			}
+		}
+	}
+   	fclose(fp);
+}
+
+int Get_InputData_Disp_grad_1_on_Node(){
+	int i, j;
+	FILE *fp;
+	if ((fp = fopen("Disp_grad_1_on_Node.dat", "r")) == NULL)	printf("file open error!!¥n");
+	
+	fscanf (fp, "%d", &i);
+	for(i = 0; i < NNodes; i++ ){
+		for(j = 0; j < DIMENSION; j++ )
+				fscanf(fp, "%le",&Disp_grad_1_on_Node[i][j]);
+	}
+     fclose(fp);
+}
+
+int Get_InputData_Disp_grad_2_on_Node(){
+	int i, j;
+	FILE *fp;
+	if ((fp = fopen("Disp_grad_2_on_Node.dat", "r")) == NULL)	printf("file open error!!¥n");
+
+	fscanf (fp, "%d", &i);
+	for(i = 0; i < NNodes; i++ ){
+		for(j = 0; j < DIMENSION; j++ ){
+			fscanf(fp, "%le",&Disp_grad_2_on_Node[i][j]);
+		}
+	}
+   	fclose(fp);
+}
+
+int Get_InputData_Disp_grad_3_on_Node(){
+	int i, j;
+	FILE *fp;
+	if ((fp = fopen("Disp_grad_3_on_Node.dat", "r")) == NULL)	printf("file open error!!¥n");
+
+	fscanf (fp, "%d", &i);
+	for(i = 0; i < NNodes; i++ ){
+		for(j = 0; j < DIMENSION; j++ ){
+			fscanf(fp, "%le",&Disp_grad_3_on_Node[i][j]);
+		}
+	}
+    fclose(fp);
+}
+
+int Get_InputData_W_1_on_Node(){
+	int i, j;
+	FILE *fp;
+	if ((fp = fopen("W_1_on_Node.dat", "r")) == NULL)	printf("file open error!!¥n");
+
+	fscanf (fp, "%d", &i);
+	for(i = 0; i < NNodes; i++ ){
+		for(j = 0; j < DIMENSION; j++ ){
+			fscanf(fp, "%le",&W_1_on_Node[i][j]);
+		}
+	}
+    fclose(fp);
+}
+
+int Get_InputData_W_2_on_Node(){
+	int i, j;
+	FILE *fp;
+	if ((fp = fopen("W_2_on_Node.dat", "r")) == NULL)	printf("file open error!!¥n");
+
+	fscanf (fp, "%d", &i);
+	for(i = 0; i < NNodes; i++ ){
+		for(j = 0; j < DIMENSION; j++ ){
+			fscanf(fp, "%le",&W_2_on_Node[i][j]);
+		}
+	}
+    fclose(fp);
+}
+
+int Get_InputData_W_3_on_Node(){
+	int i, j;
+	FILE *fp;
+	if ((fp = fopen("W_3_on_Node.dat", "r")) == NULL)	printf("file open error!!¥n");
+
+	fscanf (fp, "%d", &i);
+	for(i = 0; i < NNodes; i++ ){
+		for(j = 0; j < DIMENSION; j++ ){
+			fscanf(fp, "%le",&W_3_on_Node[i][j]);
+		}
+	}
+     fclose(fp);
+}
+
+/***********************************************************************
+					        形状関数
+***********************************************************************/
+/*形状関数設定T10*/
+double N_Tetra_10(int I_No, double Local_coord[DIMENSION] ){
+  double cash;
+	switch(I_No){
+		case 0:	cash = Local_coord[0]*(2.0*Local_coord[0]-1.0);//2r(r-1/2)
+				break;
+		case 1:	cash = Local_coord[1]*(2.0*Local_coord[1]-1.0);//2s(s-1/2)
+				break;
+		case 2:	cash = (1.0-Local_coord[0]-Local_coord[1]-Local_coord[2])*(1.0-2.0*(Local_coord[0]+Local_coord[1]+Local_coord[2]));//2(1-r-s-t)(1/2-r-s-t)
+				break;
+		case 3:	cash = Local_coord[2]*(2.0*Local_coord[2]-1.0);//2t(t-1/2)
+				break;
+		case 4:	cash = 4.0*Local_coord[0]*Local_coord[1];//4rs
+				break;
+		case 5:	cash = 4.0*Local_coord[0]*(1-Local_coord[0]-Local_coord[1]-Local_coord[2]);//4r(1-r-s-t)
+				break;
+		case 6:	cash = 4.0*Local_coord[0]*Local_coord[2];//4rt		
+				break;
+		case 7:	cash = 4.0*Local_coord[1]*(1-Local_coord[0]-Local_coord[1]-Local_coord[2]);//4s(1-r-s-t)
+				break;
+		case 8:	cash = 4.0*Local_coord[2]*(1-Local_coord[0]-Local_coord[1]-Local_coord[2]);//4t(1-r-s-t)
+				break;
+		case 9:	cash = 4.0*Local_coord[1]*Local_coord[2];//4st_
+				break;
+		default:	cash = -999;
+	}
+	return cash;
+}
+/*形状関数の偏微分を求める。T10用I_No:msh,要素コネクティビティの順番,Coord[DIMENSION]:任意の座標値、xez:微分方向0~2*/
+double dN_Tetra_10(int I_No, double Local_coord[DIMENSION], int xez){
+	double cash;
+	switch(I_No){
+		case 0:
+			if( xez == 0 )      	cash = 4.0*Local_coord[0]-1.0; //4r-1
+			else               	cash = 0.0;
+			break;
+		case 1:
+			if( xez == 1 )      	cash = 4.0*Local_coord[1]-1.0; //4s-1
+			else                	cash = 0.0;
+			break;
+		case 2:
+							  	cash = -3.0+4.0*(Local_coord[0]+Local_coord[1]+Local_coord[2]); //-3+4(r+s+t)
+			break;
+		case 3:
+			if( xez == 2 )      	cash = 4.0*Local_coord[2]-1.0; //4t-1
+			else                	cash = 0.0;
+			break;
+		case 4:
+			if(xez == 0)			cash = 4.0*Local_coord[1]; //4s
+			else if(xez == 1) 	cash = 4.0*Local_coord[0]; //4r
+			else                	cash = 0.0;
+			break;
+		case 5:
+			if( xez == 0 )      	cash = 4.0*(1.0-2.0*Local_coord[0]-Local_coord[1]-Local_coord[2]); //4*(1-2r-s-t)
+			else                	cash = -4.0*Local_coord[0]; //-4r
+			break;
+		case 6:
+			if( xez == 0 )      	cash = 4.0*Local_coord[2];//4t.
+			else if( xez == 1 ) 	cash = 0.0;
+			else                	cash = 4.0*Local_coord[0];//4r
+			break;
+		case 7:
+			if( xez == 1 )      	cash = 4.0*(1.0-Local_coord[0]-2.0*Local_coord[1]-Local_coord[2]); //4(1-r-2s-t)
+			else                	cash = -4.0*Local_coord[1]; //-4s
+			break;
+		case 8:
+			if( xez == 2 )      	cash = 4.0*(1.0-Local_coord[0]-Local_coord[1]-2.0*Local_coord[2]); //4(1-r-s-2t)
+			else                	cash = -4.0*Local_coord[2]; //-4t.
+			break;
+		case 9:
+			if( xez == 0 )     	cash = 0.0;
+			else if( xez == 1 ) 	cash = 4.0*Local_coord[2];//4t.
+			else                	cash = 4.0*Local_coord[1];//4s
+			break;
+		default:cash = -999;
+	}
+	return cash;
+}
+/*形状関数設定T4*/
+double N_Tetra_4(int I_No, double Local_coord[DIMENSION] ){
+	double cash;
+	switch(I_No){
+		case 0: cash = Local_coord[0];   //r
+			break;
+		case 1: cash = Local_coord[1];  //s
+			break;
+		case 2: cash = 1.0-Local_coord[0]-Local_coord[1]-Local_coord[2]; //1-r-s-t
+			break;
+		case 3: cash = Local_coord[2]; //t
+			break;
+		default: cash = ERROR;
+	}
+	return cash;
+}
+
+/*形状関数の偏微分を求める。T4用I_No:msh,要素コネクティビティの順番,Coord[DIMENSION]:任意の座標値、xez:微分方向0~2*/
+double dN_Tetra_4(int I_No, double Local_coord[DIMENSION], int xez){
+	double cash;
+	switch(I_No){
+		case 0:
+			if(xez == 0) cash = 1.0;
+			else if(xez != 0) cash = 0.0;
+			else cash = ERROR;
+			break;
+		case 1:
+			if(xez == 1) cash = 1.0;
+			else if(xez != 1) cash = 0.0;
+			else cash = ERROR;
+			break;
+		case 2:
+			cash = -1.0;
+			break;			
+		case 3:
+			if(xez == 2) cash = 1.0;
+			else if(xez != 2) cash = 0.0;
+			else cash = ERROR;
+			break;
+	}
+	return cash;
+}
+
+/*形状関数設定H8*/
+double N_Hexa_8(int I_No, double Local_coord[DIMENSION]){
+	double N;
+
+	switch(I_No){
+		case 0:
+	  		N = 0.125 * ( 1.0 - Local_coord[0] ) * ( 1.0 - Local_coord[1] ) * ( 1.0 - Local_coord[2] ) ;
+	  		break;
+	  	case 1:
+ 			N = 0.125 * ( 1.0 + Local_coord[0] ) * ( 1.0 - Local_coord[1] ) * ( 1.0 - Local_coord[2] ) ;
+ 			break;
+	  	case 2:
+  			N = 0.125 * ( 1.0 + Local_coord[0] ) * ( 1.0 + Local_coord[1] ) * ( 1.0 - Local_coord[2] ) ;
+  			break;
+	  	case 3:
+  			N = 0.125 * ( 1.0 - Local_coord[0] ) * ( 1.0 + Local_coord[1] ) * ( 1.0 - Local_coord[2] ) ;
+  			break;
+	  	case 4:
+  			N = 0.125 * ( 1.0 - Local_coord[0] ) * ( 1.0 - Local_coord[1] ) * ( 1.0 + Local_coord[2] ) ;
+  			break;
+	  	case 5:
+  			N = 0.125 * ( 1.0 + Local_coord[0] ) * ( 1.0 - Local_coord[1] ) * ( 1.0 + Local_coord[2] ) ;
+  			break;
+	  	case 6:
+  			N = 0.125 * ( 1.0 + Local_coord[0] ) * ( 1.0 + Local_coord[1] ) * ( 1.0 + Local_coord[2] ) ;
+  			break;
+	  	case 7:
+  			N = 0.125 * ( 1.0 - Local_coord[0] ) * ( 1.0 + Local_coord[1] ) * ( 1.0 + Local_coord[2] ) ;
+  			break;
+  		default: N = ERROR;
+	}
+	return N;
+}
+
+//形状関数の偏微分H8 (I_No:節点番号 xez:偏微分の分母部分0ξ1η2Γ）
+double dN_Hexa_8 (int I_No, double Local_coord[DIMENSION],int xez){
+	double dN;
+
+	switch(I_No){
+		case 0:
+			switch(xez){
+				case 0: dN = -0.125 * ( 1.0 - Local_coord[1] ) * ( 1.0 - Local_coord[2] ) ;
+					break;
+				case 1: dN = -0.125 * ( 1.0 - Local_coord[0] ) * ( 1.0 - Local_coord[2] ) ;
+					break;
+				case 2: dN = -0.125 * ( 1.0 - Local_coord[0] ) * ( 1.0 - Local_coord[1] ) ;
+					break;
+				default: dN=ERROR;
+			}
+			break;
+		case 1:
+			switch(xez){
+				case 0: dN =  0.125 * ( 1.0 - Local_coord[1] ) * ( 1.0 - Local_coord[2] ) ;
+					break;
+				case 1: dN = -0.125 * ( 1.0 + Local_coord[0] ) * ( 1.0 - Local_coord[2] ) ;
+					break;
+				case 2: dN = -0.125 * ( 1.0 + Local_coord[0] ) * ( 1.0 - Local_coord[1] ) ;
+					break;
+				default: dN=ERROR;
+			}
+			break;
+		case 2:
+			switch(xez){
+				case 0: dN =  0.125 * ( 1.0 + Local_coord[1] ) * ( 1.0 - Local_coord[2] ) ;
+					break;
+				case 1: dN =  0.125 * ( 1.0 + Local_coord[0] ) * ( 1.0 - Local_coord[2] ) ;
+					break;
+				case 2: dN = -0.125 * ( 1.0 + Local_coord[0] ) * ( 1.0 + Local_coord[1] ) ;
+					break;
+				default: dN=ERROR;
+			}
+			break;
+		case 3:
+			switch(xez){
+				case 0: dN = -0.125 * ( 1.0 + Local_coord[1] ) * ( 1.0 - Local_coord[2] ) ;
+					break;
+				case 1: dN =  0.125 * ( 1.0 - Local_coord[0] ) * ( 1.0 - Local_coord[2] ) ;
+					break;
+				case 2: dN = -0.125 * ( 1.0 - Local_coord[0] ) * ( 1.0 + Local_coord[1] ) ;
+					break;
+				default: dN=ERROR;
+			}
+			break;
+		case 4:
+			switch(xez){
+				case 0:  dN = -0.125 * ( 1.0 - Local_coord[1] ) * ( 1.0 + Local_coord[2] ) ;
+					break;
+				case 1:	dN = -0.125 * ( 1.0 - Local_coord[0] ) * ( 1.0 + Local_coord[2] ) ;
+					break;
+				case 2:  dN =  0.125 * ( 1.0 - Local_coord[0] ) * ( 1.0 - Local_coord[1] ) ;
+					break;
+				default: dN=ERROR;
+			}
+			break;
+		case 5:
+			switch(xez){
+				case 0:  dN =  0.125 * ( 1.0 - Local_coord[1] ) * ( 1.0 + Local_coord[2] ) ;
+					break;
+				case 1:  dN = -0.125 * ( 1.0 + Local_coord[0] ) * ( 1.0 + Local_coord[2] ) ;
+					break;
+				case 2:  dN =  0.125 * ( 1.0 + Local_coord[0] ) * ( 1.0 - Local_coord[1] ) ;
+					break;
+				default: dN=ERROR;
+			}
+			break;
+		case 6:
+			switch(xez){
+				case 0:  dN =  0.125 * ( 1.0 + Local_coord[1] ) * ( 1.0 + Local_coord[2] ) ;
+					break;
+				case 1:  dN =  0.125 * ( 1.0 + Local_coord[0] ) * ( 1.0 + Local_coord[2] ) ;
+					break;
+				case 2:  dN =  0.125 * ( 1.0 + Local_coord[0] ) * ( 1.0 + Local_coord[1] ) ;
+					break;
+				default: dN=ERROR;
+			}
+			break;
+		case 7:
+			switch(xez){
+				case 0:  dN = -0.125 * ( 1.0 + Local_coord[1] ) * ( 1.0 + Local_coord[2] ) ;
+					break;
+				case 1:  dN =  0.125 * ( 1.0 - Local_coord[0] ) * ( 1.0 + Local_coord[2] ) ;
+					break;
+				case 2:  dN =  0.125 * ( 1.0 - Local_coord[0] ) * ( 1.0 + Local_coord[1] ) ;
+					break;
+				default: dN=ERROR;
+			}
+			break;
+		default:dN=ERROR;
+
+	}
+	return dN;
+}
+
+/*形状関数設定H20*/
+double N_Hexa_20(int I_No, double Local_coord[DIMENSION]){
+	double N;
+
+	switch(I_No){
+		case 0: N = -0.125 * (1.0 - Local_coord[0]) * ( 1.0 - Local_coord[1] ) * ( 1.0 - Local_coord[2] ) * ( 2.0 + Local_coord[0] + Local_coord[1] + Local_coord[2] ) ;
+			break;
+		case 1: N = -0.125 * (1.0 + Local_coord[0]) * ( 1.0 - Local_coord[1] ) * ( 1.0 - Local_coord[2] ) * ( 2.0 - Local_coord[0] + Local_coord[1] + Local_coord[2] ) ;
+			break;
+		case 2: N = -0.125 * (1.0 + Local_coord[0]) * ( 1.0 + Local_coord[1] ) * ( 1.0 - Local_coord[2] ) * ( 2.0 - Local_coord[0] - Local_coord[1] + Local_coord[2] ) ;
+			break;
+		case 3: N = -0.125 * (1.0 - Local_coord[0]) * ( 1.0 + Local_coord[1] ) * ( 1.0 - Local_coord[2] ) * ( 2.0 + Local_coord[0] - Local_coord[1] + Local_coord[2] ) ;
+			break;
+		case 4: N = -0.125 * (1.0 - Local_coord[0]) * ( 1.0 - Local_coord[1] ) * ( 1.0 + Local_coord[2] ) * ( 2.0 + Local_coord[0] + Local_coord[1] - Local_coord[2] ) ;
+			break;
+		case 5: N = -0.125 * (1.0 + Local_coord[0]) * ( 1.0 - Local_coord[1] ) * ( 1.0 + Local_coord[2] ) * ( 2.0 - Local_coord[0] + Local_coord[1] - Local_coord[2] ) ;
+			break;
+		case 6: N = -0.125 * (1.0 + Local_coord[0]) * ( 1.0 + Local_coord[1] ) * ( 1.0 + Local_coord[2] ) * ( 2.0 - Local_coord[0] - Local_coord[1] - Local_coord[2] ) ;
+			break;
+		case 7: N = -0.125 * (1.0 - Local_coord[0]) * ( 1.0 + Local_coord[1] ) * ( 1.0 + Local_coord[2] ) * ( 2.0 + Local_coord[0] - Local_coord[1] - Local_coord[2] ) ;
+			break;
+
+		case 8 : N = 0.25 * (1.0 - Local_coord[0]*Local_coord[0]) * ( 1.0 - Local_coord[1] ) * ( 1.0 - Local_coord[2] ) ;
+			break;
+		case 9 : N = 0.25 * (1.0 + Local_coord[0]) * ( 1.0 - Local_coord[1]*Local_coord[1] ) * ( 1.0 - Local_coord[2] ) ;
+			break;
+		case 10: N = 0.25 * (1.0 - Local_coord[0]*Local_coord[0]) * ( 1.0 + Local_coord[1] ) * ( 1.0 - Local_coord[2] ) ;
+			break;
+		case 11: N = 0.25 * (1.0 - Local_coord[0]) * ( 1.0 - Local_coord[1]*Local_coord[1] ) * ( 1.0 - Local_coord[2] ) ;
+			break;
+
+		case 12: N = 0.25 * (1.0 - Local_coord[0]) * ( 1.0 - Local_coord[1] ) * ( 1.0 - Local_coord[2]*Local_coord[2] ) ;
+			break;
+		case 13: N = 0.25 * (1.0 + Local_coord[0]) * ( 1.0 - Local_coord[1] ) * ( 1.0 - Local_coord[2]*Local_coord[2] ) ;
+			break;
+		case 14: N = 0.25 * (1.0 + Local_coord[0]) * ( 1.0 + Local_coord[1] ) * ( 1.0 - Local_coord[2]*Local_coord[2] ) ;
+			break;
+		case 15: N = 0.25 * (1.0 - Local_coord[0]) * ( 1.0 + Local_coord[1] ) * ( 1.0 - Local_coord[2]*Local_coord[2] ) ;
+			break;
+
+		case 16: N = 0.25 * (1.0 - Local_coord[0]*Local_coord[0]) * ( 1.0 - Local_coord[1] ) * ( 1.0 + Local_coord[2] ) ;
+			break;
+		case 17: N = 0.25 * (1.0 + Local_coord[0]) * ( 1.0 - Local_coord[1]*Local_coord[1] ) * ( 1.0 + Local_coord[2] ) ;
+			break;
+		case 18: N = 0.25 * (1.0 - Local_coord[0]*Local_coord[0]) * ( 1.0 + Local_coord[1] ) * ( 1.0 + Local_coord[2] ) ;
+			break;
+		case 19: N = 0.25 * (1.0 - Local_coord[0]) * ( 1.0 - Local_coord[1]*Local_coord[1] ) * ( 1.0 + Local_coord[2] ) ;
+			break;
+		default:N=ERROR;
+	}
+	return N;
+}
+
+//形状関数の偏微分H20 (I_No:節点番号 xez:偏微分の分母部分0ξ1η2Γ）
+double dN_Hexa_20(int I_No, double Local_coord[DIMENSION], int xez){
+	double dN;
+
+	switch(I_No)
+	{
+	  	case 0:
+	  		switch(xez){
+	  			case 0: dN = -0.125 * ( 1.0 - Local_coord[1] ) * ( 1.0 - Local_coord[2] ) * ( -2.0 * Local_coord[0] - Local_coord[1] - Local_coord[2] - 1.0 ) ;
+	  				break;
+	  			case 1: dN = -0.125 * ( 1.0 - Local_coord[0] ) * ( 1.0 - Local_coord[2] ) * ( -2.0 * Local_coord[1] - Local_coord[0] - Local_coord[2] - 1.0 ) ;
+	  				break;
+	  			case 2: dN = -0.125 * ( 1.0 - Local_coord[0] ) * ( 1.0 - Local_coord[1] ) * ( -2.0 * Local_coord[2] - Local_coord[0] - Local_coord[1] - 1.0 ) ;
+	  				break;
+	  			default:dN=ERROR;
+	  		}
+	  		break;
+	  	case 1:
+	  		switch(xez){
+	  			case 0: dN =  0.125 * ( 1.0 - Local_coord[1] ) * ( 1.0 - Local_coord[2] ) * (  2.0 * Local_coord[0] - Local_coord[1] - Local_coord[2] - 1.0 ) ;
+	  				break;
+	  			case 1: dN = -0.125 * ( 1.0 + Local_coord[0] ) * ( 1.0 - Local_coord[2] ) * ( -2.0 * Local_coord[1] + Local_coord[0] - Local_coord[2] - 1.0 ) ;
+	  				break;
+	  			case 2: dN = -0.125 * ( 1.0 + Local_coord[0] ) * ( 1.0 - Local_coord[1] ) * ( -2.0 * Local_coord[2] + Local_coord[0] - Local_coord[1] - 1.0 ) ;
+	  				break;
+	  			default:dN=ERROR;
+	  		}
+	  		break;
+	  	case 2:
+	  		switch(xez){
+	  			case 0: dN =  0.125 * ( 1.0 + Local_coord[1] ) * ( 1.0 - Local_coord[2] ) * (  2.0 * Local_coord[0] + Local_coord[1] - Local_coord[2] - 1.0 ) ;
+	  				break;
+	  			case 1: dN =  0.125 * ( 1.0 + Local_coord[0] ) * ( 1.0 - Local_coord[2] ) * (  2.0 * Local_coord[1] + Local_coord[0] - Local_coord[2] - 1.0 ) ;
+	  				break;
+	  			case 2: dN = -0.125 * ( 1.0 + Local_coord[0] ) * ( 1.0 + Local_coord[1] ) * ( -2.0 * Local_coord[2] + Local_coord[0] + Local_coord[1] - 1.0 ) ;
+	  				break;
+	  			default:dN=ERROR;
+	  		}
+	  		break;
+	  	case 3:
+	  		switch(xez){
+	  			case 0: dN = -0.125 * ( 1.0 + Local_coord[1] ) * ( 1.0 - Local_coord[2] ) * ( -2.0 * Local_coord[0] + Local_coord[1] - Local_coord[2] - 1.0 ) ;
+	  				break;
+	  			case 1: dN =  0.125 * ( 1.0 - Local_coord[0] ) * ( 1.0 - Local_coord[2] ) * (  2.0 * Local_coord[1] - Local_coord[0] - Local_coord[2] - 1.0 ) ;
+	  				break;
+	  			case 2: dN = -0.125 * ( 1.0 - Local_coord[0] ) * ( 1.0 + Local_coord[1] ) * ( -2.0 * Local_coord[2] - Local_coord[0] + Local_coord[1] - 1.0 ) ;
+	  				break;
+	  			default:dN=ERROR;
+	  		}
+	  		break;
+	  	case 4:
+	  		switch(xez){
+	  			case 0: dN = -0.125 * ( 1.0 - Local_coord[1] ) * ( 1.0 + Local_coord[2] ) * ( -2.0 * Local_coord[0] - Local_coord[1] + Local_coord[2] - 1.0 ) ;
+	  				break;
+	  			case 1: dN = -0.125 * ( 1.0 - Local_coord[0] ) * ( 1.0 + Local_coord[2] ) * ( -2.0 * Local_coord[1] - Local_coord[0] + Local_coord[2] - 1.0 ) ;
+	  				break;
+	  			case 2: dN =  0.125 * ( 1.0 - Local_coord[0] ) * ( 1.0 - Local_coord[1] ) * (  2.0 * Local_coord[2] - Local_coord[0] - Local_coord[1] - 1.0 ) ;
+	  				break;
+	  			default:dN=ERROR;
+	  		}
+	  		break;
+	  	case 5:
+	  		switch(xez){
+	  			case 0: dN =  0.125 * ( 1.0 - Local_coord[1] ) * ( 1.0 + Local_coord[2] ) * (  2.0 * Local_coord[0] - Local_coord[1] + Local_coord[2] - 1.0 ) ;
+	  				break;
+	  			case 1: dN = -0.125 * ( 1.0 + Local_coord[0] ) * ( 1.0 + Local_coord[2] ) * ( -2.0 * Local_coord[1] + Local_coord[0] + Local_coord[2] - 1.0 ) ;
+	  				break;
+	  			case 2: dN =  0.125 * ( 1.0 + Local_coord[0] ) * ( 1.0 - Local_coord[1] ) * (  2.0 * Local_coord[2] + Local_coord[0] - Local_coord[1] - 1.0 ) ;
+	  				break;
+	  			default:dN=ERROR;
+	  		}
+	  		break;
+	  	case 6:
+	  		switch(xez){
+	  			case 0: dN =  0.125 * ( 1.0 + Local_coord[1] ) * ( 1.0 + Local_coord[2] ) * (  2.0 * Local_coord[0] + Local_coord[1] + Local_coord[2] - 1.0 ) ;
+	  				break;
+	  			case 1: dN =  0.125 * ( 1.0 + Local_coord[0] ) * ( 1.0 + Local_coord[2] ) * (  2.0 * Local_coord[1] + Local_coord[0] + Local_coord[2] - 1.0 ) ;
+	  				break;
+	  			case 2: dN =  0.125 * ( 1.0 + Local_coord[0] ) * ( 1.0 + Local_coord[1] ) * (  2.0 * Local_coord[2] + Local_coord[0] + Local_coord[1] - 1.0 ) ;
+	  				break;
+	  			default:dN=ERROR;
+	  		}
+	  		break;
+	  	case 7:
+	  		switch(xez){
+	  			case 0: dN = -0.125 * ( 1.0 + Local_coord[1] ) * ( 1.0 + Local_coord[2] ) * ( -2.0 * Local_coord[0] + Local_coord[1] + Local_coord[2] - 1.0 ) ;
+	  				break;
+	  			case 1: dN =  0.125 * ( 1.0 - Local_coord[0] ) * ( 1.0 + Local_coord[2] ) * (  2.0 * Local_coord[1] - Local_coord[0] + Local_coord[2] - 1.0 ) ;
+	  				break;
+	  			case 2: dN =  0.125 * ( 1.0 - Local_coord[0] ) * ( 1.0 + Local_coord[1] ) * (  2.0 * Local_coord[2] - Local_coord[0] + Local_coord[1] - 1.0 ) ;
+	  				break;
+	  			default:dN=ERROR;
+	  		}
+	  		break;
+
+	  	case 8:
+	  		switch(xez){
+	  			case 0: dN = -0.5  * Local_coord[0] * (1.0 - Local_coord[1]) * (1.0 - Local_coord[2]) ;
+	  				break;
+	  			case 1: dN = -0.25 * (1.0 - Local_coord[0] * Local_coord[0]) * (1.0 - Local_coord[2]) ;
+	  				break;
+	  			case 2: dN = -0.25 * (1.0 - Local_coord[0] * Local_coord[0]) * (1.0 - Local_coord[1]) ;
+	  				break;
+	  			default:dN=ERROR;
+	  		}
+	  		break;
+	  	case 9:
+	  		switch(xez){
+	  			case 0: dN =  0.25 * (1.0 - Local_coord[1] * Local_coord[1]) * (1.0 - Local_coord[2]) ;
+	  				break;
+	  			case 1: dN = -0.5  * Local_coord[1] * (1.0 + Local_coord[0]) * (1.0 - Local_coord[2]) ;
+	  				break;
+	  			case 2: dN = -0.25 * (1.0 - Local_coord[1] * Local_coord[1]) * (1.0 + Local_coord[0]) ;
+	  				break;
+	  			default:dN=ERROR;
+	  		}
+	  		break;
+	  	case 10:
+	  		switch(xez){
+	  			case 0: dN = -0.5  * Local_coord[0] * (1.0 + Local_coord[1]) * (1.0 - Local_coord[2]) ;
+	  				break;
+	  			case 1: dN =  0.25 * (1.0 - Local_coord[0] * Local_coord[0]) * (1.0 - Local_coord[2]) ;
+	  				break;
+	  			case 2: dN = -0.25 * (1.0 - Local_coord[0] * Local_coord[0]) * (1.0 + Local_coord[1]) ;
+	  				break;
+	  			default:dN=ERROR;
+	  		}
+	  		break;
+	  	case 11:
+	  		switch(xez){
+	  			case 0: dN = -0.25 * (1.0 - Local_coord[1] * Local_coord[1]) * (1.0 - Local_coord[2]) ;
+	  				break;
+	  			case 1: dN = -0.5  * Local_coord[1] * (1.0 - Local_coord[0]) * (1.0 - Local_coord[2]) ;
+	  				break;
+	  			case 2: dN = -0.25 * (1.0 - Local_coord[1] * Local_coord[1]) * (1.0 - Local_coord[0]) ;
+	  				break;
+	  			default:dN=ERROR;
+	  		}
+	  		break;
+	  	case 12:
+	  		switch(xez){
+	  			case 0: dN = -0.25 * (1.0 - Local_coord[2] * Local_coord[2]) * (1.0 - Local_coord[1]) ;
+	  				break;
+	  			case 1: dN = -0.25 * (1.0 - Local_coord[2] * Local_coord[2]) * (1.0 - Local_coord[0]) ;
+	  				break;
+	  			case 2: dN = -0.5  * Local_coord[2] * (1.0 - Local_coord[0]) * (1.0 - Local_coord[1]) ;
+	  				break;
+	  			default:dN=ERROR;
+	  		}
+	  		break;
+	  	case 13:
+	  		switch(xez){
+	  			case 0: dN =  0.25 * (1.0 - Local_coord[2] * Local_coord[2]) * (1.0 - Local_coord[1]) ;
+	  				break;
+	  			case 1: dN = -0.25 * (1.0 - Local_coord[2] * Local_coord[2]) * (1.0 + Local_coord[0]) ;
+	  				break;
+	  			case 2: dN = -0.5  * Local_coord[2] * (1.0 + Local_coord[0]) * (1.0 - Local_coord[1]) ;
+	  				break;
+	  			default:dN=ERROR;
+	  		}
+	  		break;
+	  	case 14:
+	  		switch(xez){
+	  			case 0: dN =  0.25 * (1.0 - Local_coord[2] * Local_coord[2]) * (1.0 + Local_coord[1]) ;
+	  				break;
+	  			case 1: dN =  0.25 * (1.0 - Local_coord[2] * Local_coord[2]) * (1.0 + Local_coord[0]) ;
+	  				break;
+	  			case 2: dN = -0.5  * Local_coord[2] * (1.0 + Local_coord[0]) * (1.0 + Local_coord[1]) ;
+	  				break;
+	  			default:dN=ERROR;
+	  		}
+	  		break;
+	  	case 15:
+	  		switch(xez){
+	  			case 0: dN = -0.25 * (1.0 - Local_coord[2] * Local_coord[2]) * (1.0 + Local_coord[1]) ;
+	  				break;
+	  			case 1: dN =  0.25 * (1.0 - Local_coord[2] * Local_coord[2]) * (1.0 - Local_coord[0]) ;
+	  				break;
+	  			case 2: dN = -0.5  * Local_coord[2] * (1.0 - Local_coord[0]) * (1.0 + Local_coord[1]) ;
+	  				break;
+	  			default:dN=ERROR;
+	  		}
+	  		break;
+	  	case 16:
+	  		switch(xez){
+	  			case 0: dN = -0.5  * Local_coord[0] * (1.0 - Local_coord[1]) * (1.0 + Local_coord[2]) ;
+	  				break;
+	  			case 1: dN = -0.25 * (1.0 - Local_coord[0] * Local_coord[0]) * (1.0 + Local_coord[2]) ;
+	  				break;
+	  			case 2: dN =  0.25 * (1.0 - Local_coord[0] * Local_coord[0]) * (1.0 - Local_coord[1]) ;
+	  				break;
+	  			default:dN=ERROR;
+	  		}
+	  		break;
+	  	case 17:
+	  		switch(xez){
+	  			case 0: dN =  0.25 * (1.0 - Local_coord[1] * Local_coord[1]) * (1.0 + Local_coord[2]) ;
+	  				break;
+	  			case 1: dN = -0.5  * Local_coord[1] * (1.0 + Local_coord[0]) * (1.0 + Local_coord[2]) ;
+	  				break;
+	  			case 2: dN =  0.25 * (1.0 - Local_coord[1] * Local_coord[1]) * (1.0 + Local_coord[0]) ;
+	  				break;
+	  			default:dN=ERROR;
+	  		}
+	  		break;
+	  	case 18:
+	  		switch(xez){
+	  			case 0: dN= -0.5  * Local_coord[0] * (1.0 + Local_coord[1]) * (1.0 + Local_coord[2]) ;
+	  				break;
+	  			case 1: dN =  0.25 * (1.0 - Local_coord[0] * Local_coord[0]) * (1.0 + Local_coord[2]) ;
+	  				break;
+	  			case 2: dN =  0.25 * (1.0 - Local_coord[0] * Local_coord[0]) * (1.0 + Local_coord[1]) ;
+	  				break;
+	  			default:dN=ERROR;
+	  		}
+	  		break;
+	  	case 19:
+	  		switch(xez){
+	  			case 0: dN = -0.25 * (1.0 - Local_coord[1] * Local_coord[1]) * (1.0 + Local_coord[2]) ;
+	  				break;
+	  			case 1: dN = -0.5  * Local_coord[1] * (1.0 - Local_coord[0]) * (1.0 + Local_coord[2]) ;
+	  				break;
+	  			case 2: dN =  0.25 * (1.0 - Local_coord[1] * Local_coord[1]) * (1.0 - Local_coord[0]) ;
+	  				break;
+	  			default:dN=ERROR;
+	  		}
+	  		break;
+	  	default:dN=ERROR;
+	}
+	return dN;
+}
+/***********************************************************************
+					     ヤコビアン
+***********************************************************************/
+int Jacobian_Tetra_10( double a[DIMENSION][DIMENSION], double Local_coord[DIMENSION], double X[NO_NODES_ON_ELEMENT_T10][DIMENSION] ){
+	int i,j,k;
+	for( i= 0; i < DIMENSION; i++ ){
+		for(j = 0; j < DIMENSION; j++ ){
+			a[i][j] = 0.0;
+			for( k = 0; k < Number_of_Nodes_on_Elements; k++ ){
+				a[i][j] += dN_Tetra_10( k, Local_coord, j)*X[k][i];
+			}
+			//printf("\na[%d][%d]=%5.25lf\n",i,j,a[i][j]);
+		}
+	}
+	return 0;
+}
+int Jacobian_Tetra_4( double a[DIMENSION][DIMENSION], double Local_coord[DIMENSION], double X[NO_NODES_ON_ELEMENT_T4][DIMENSION] ){
+	int i,j,k;
+	for( i= 0; i < DIMENSION; i++ ){
+		for(j = 0; j < DIMENSION; j++ ){
+			a[i][j] = 0.0;
+			for( k = 0; k < Number_of_Nodes_on_Elements; k++ ){
+				a[i][j] += dN_Tetra_4( k, Local_coord, j)*X[k][i];
+			}
+			//printf("a[%d][%d]=%lf\n",i,j,a[i][j]);
+		}
+	}
+	return 0;
+}
+int Jacobian_Hexa_8( double a[DIMENSION][DIMENSION], double Local_coord[DIMENSION], double X[NO_NODES_ON_ELEMENT_H8][DIMENSION] ){
+	int i,j,k;
+	for( i= 0; i < DIMENSION; i++ ){
+		for(j = 0; j < DIMENSION; j++ ){
+			a[i][j] = 0.0;
+			for( k = 0; k < Number_of_Nodes_on_Elements; k++ ){
+				a[i][j] += dN_Hexa_8( k, Local_coord, j)*X[k][i];
+			}
+			//printf("a[%d][%d]=%lf\n",i,j,a[i][j]);
+		}
+	}
+	return 0;
+}
+int Jacobian_Hexa_20( double a[DIMENSION][DIMENSION], double Local_coord[DIMENSION], double X[NO_NODES_ON_ELEMENT_H20][DIMENSION] ){
+	int i,j,k;
+	for( i= 0; i < DIMENSION; i++ ){
+		for(j = 0; j < DIMENSION; j++ ){
+			a[i][j] = 0.0;
+			for( k = 0; k < Number_of_Nodes_on_Elements; k++ ){
+				a[i][j] += dN_Hexa_20( k, Local_coord, j)*X[k][i];
+			}
+			//printf("a[%d][%d]=%lf\n",i,j,a[i][j]);
+		}
+	}
+	return 0;
+}
+/***********************************************************************
+					     行列演算
+***********************************************************************/
+/*読み込んだ3×3の行列を逆行列にして返す。返り値がdetになってる。*/
+double InverseMatrix_3D(double M[3][3] ){
+  	int i, j;
+  	double a[3][3];
+  	double det = M[0][0]*M[1][1]*M[2][2] +M[0][1]*M[1][2]*M[2][0] +M[0][2]*M[1][0]*M[2][1]
+			    -M[0][0]*M[1][2]*M[2][1] -M[0][1]*M[1][0]*M[2][2] -M[0][2]*M[1][1]*M[2][0];
+	
+  	for( i= 0; i< 3; i++ ){
+    		for( j= 0; j< 3; j++ ){
+			a[i][j] = M[i][j];
+		}
+  	}
+  	M[0][0] = (a[1][1]*a[2][2]-a[1][2]*a[2][1])/det; M[0][1] = (a[2][1]*a[0][2]-a[2][2]*a[0][1])/det; M[0][2] = (a[0][1]*a[1][2]-a[0][2]*a[1][1])/det;
+  	M[1][0] = (a[1][2]*a[2][0]-a[1][0]*a[2][2])/det; M[1][1] = (a[2][2]*a[0][0]-a[2][0]*a[0][2])/det; M[1][2] = (a[0][2]*a[1][0]-a[0][0]*a[1][2])/det;
+  	M[2][0] = (a[1][0]*a[2][1]-a[1][1]*a[2][0])/det; M[2][1] = (a[2][0]*a[0][1]-a[2][1]*a[0][0])/det; M[2][2] = (a[0][0]*a[1][1]-a[0][1]*a[1][0])/det;
+  	return det;
+}
+
+////////////////////////////////////////////////////////////////
+//////////////////J_Integral////////////////////////////////////
+////////////////////////////////////////////////////////////////
+int Make_Def_grad_In()
+{
+  	int e, N;
+  	double det;
+
+  	for( e = 0; e < NElements; e++ ){
+		for( N = 0; N < N_IntegrationPoint; N++ ){
+	  		det=Def_grad[e][N][0][0]*Def_grad[e][N][1][1]*Def_grad[e][N][2][2]
+				+Def_grad[e][N][0][1]*Def_grad[e][N][1][2]*Def_grad[e][N][2][0]
+				+Def_grad[e][N][0][2]*Def_grad[e][N][1][0]*Def_grad[e][N][2][1]
+				-Def_grad[e][N][0][0]*Def_grad[e][N][1][2]*Def_grad[e][N][2][1]
+				-Def_grad[e][N][0][1]*Def_grad[e][N][1][0]*Def_grad[e][N][2][2]
+				-Def_grad[e][N][0][2]*Def_grad[e][N][1][1]*Def_grad[e][N][2][0];
+
+	 		Def_grad_In[e][N][0][0]=(Def_grad[e][N][1][1]*Def_grad[e][N][2][2]-Def_grad[e][N][1][2]*Def_grad[e][N][2][1])/det;
+	 		Def_grad_In[e][N][0][1]=(Def_grad[e][N][2][1]*Def_grad[e][N][0][2]-Def_grad[e][N][0][1]*Def_grad[e][N][2][2])/det;
+	  		Def_grad_In[e][N][0][2]=(Def_grad[e][N][0][1]*Def_grad[e][N][1][2]-Def_grad[e][N][1][1]*Def_grad[e][N][0][2])/det;
+	  		Def_grad_In[e][N][1][0]=(Def_grad[e][N][2][0]*Def_grad[e][N][1][2]-Def_grad[e][N][1][0]*Def_grad[e][N][2][2])/det;
+	  		Def_grad_In[e][N][1][1]=(Def_grad[e][N][0][0]*Def_grad[e][N][2][2]-Def_grad[e][N][2][0]*Def_grad[e][N][0][2])/det;
+	  		Def_grad_In[e][N][1][2]=(Def_grad[e][N][1][0]*Def_grad[e][N][0][2]-Def_grad[e][N][0][0]*Def_grad[e][N][1][2])/det;
+	  		Def_grad_In[e][N][2][0]=(Def_grad[e][N][1][0]*Def_grad[e][N][2][1]-Def_grad[e][N][2][0]*Def_grad[e][N][1][1])/det;
+	  		Def_grad_In[e][N][2][1]=(Def_grad[e][N][2][0]*Def_grad[e][N][0][1]-Def_grad[e][N][0][0]*Def_grad[e][N][2][1])/det;
+	  		Def_grad_In[e][N][2][2]=(Def_grad[e][N][0][0]*Def_grad[e][N][1][1]-Def_grad[e][N][1][0]*Def_grad[e][N][0][1])/det;
+		}
+  	}
+  //for( e = 0; e < NElements; e++ ){
+  //for( N = 0; N < N_IntegrationPoint; N++ ){
+  //  for( i= 0; i< 3; i++ ){
+  //    for( j= 0; j< 3; j++ ){
+  //      I[e][N][i][j]=Def_grad_In[e][N][i][0]*Def_grad[e][N][0][j]
+  //        +Def_grad_In[e][N][i][1]*Def_grad[e][N][1][j]
+  //        +Def_grad_In[e][N][i][2]*Def_grad[e][N][2][j];
+  //    }
+  //  }
+  //}
+  //}
+  //Output_I();
+
+  //Output_Def_grad_In_Data();
+}
+//1stP-Kを求める関数
+void Make_1st_PK_stress(){
+
+  	int i, j;
+  	double K_D1[DIMENSION] = {1.0, 0.0, 0.0};
+  	double K_D2[DIMENSION] = {0.0, 1.0, 0.0};
+  	double K_D3[DIMENSION] = {0.0, 0.0, 1.0};
+  	int e, N;
+
+  	//変形勾配初期化
+  	for( e = 0; e < NElements; e++ ){
+		for( N = 0; N < N_IntegrationPoint; N++ ){
+	  		for( i = 0; i < DIMENSION; i++ ){
+				for( j = 0; j < DIMENSION; j++ ){
+	  				Def_grad[e][N][i][j]=0.0;
+				}
+	  		}
+		}
+  	}
+
+  	//変形勾配    I+∇u
+ 	for( e = 0; e < NElements; e++ ){
+		for( N = 0; N < N_IntegrationPoint; N++ ){
+	  		for( i = 0; i < DIMENSION; i++ ){
+	  			Def_grad[e][N][i][0]=K_D1[i]+Disp_grad_1[e][N][i];
+	  			Def_grad[e][N][i][1]=K_D2[i]+Disp_grad_2[e][N][i];
+	  			Def_grad[e][N][i][2]=K_D3[i]+Disp_grad_3[e][N][i];
+	  		}
+		}
+  	}
+  	//ヤコビアンの計算
+ 	for( e = 0; e < NElements; e++ ){
+   		for( N = 0; N < N_IntegrationPoint; N++ ){
+	 		JJ[e][N]=Def_grad[e][N][0][0]*Def_grad[e][N][1][1]*Def_grad[e][N][2][2]
+			 		+Def_grad[e][N][0][1]*Def_grad[e][N][1][2]*Def_grad[e][N][2][0]
+			 		+Def_grad[e][N][0][2]*Def_grad[e][N][1][0]*Def_grad[e][N][2][1]
+					-Def_grad[e][N][0][0]*Def_grad[e][N][1][2]*Def_grad[e][N][2][1]
+					-Def_grad[e][N][0][1]*Def_grad[e][N][1][0]*Def_grad[e][N][2][2]
+					-Def_grad[e][N][0][2]*Def_grad[e][N][1][1]*Def_grad[e][N][2][0];
+  	 	}
+ 	}
+  	//変形勾配の逆行列
+ 	Make_Def_grad_In();
+ 	//Output_Def_grad_Data();
+  	//1stP-K
+ 	for( e = 0; e < NElements; e++ ){
+		for( N = 0; N < N_IntegrationPoint; N++ ){
+	  		for( i = 0; i < DIMENSION; i++ ){
+				for( j = 0; j < DIMENSION; j++ ){
+	  				if(deform==1){
+						Pai[e][N][i][j]=Stress[e][N][i][j];
+	  				}
+	  				if(deform==2){  //1stPK=Jacobian * Stress * F^-1
+						Pai[e][N][i][j]=JJ[e][N]*(Def_grad_In[e][N][i][0]*Stress[e][N][0][j]
+					 					+Def_grad_In[e][N][i][1]*Stress[e][N][1][j]
+					 					+Def_grad_In[e][N][i][2]*Stress[e][N][2][j]);
+	  				}
+				}
+	  		}
+		}
+ 	}
+ //Output_Pai_Data();
+}
+
+//エネルギーモーメンタムテンソルを求める関数
+void Make_EMT(){
+
+  	int i, j, k;
+  	double K_D1[DIMENSION] = {1.0, 0.0, 0.0};
+  	double K_D2[DIMENSION] = {0.0, 1.0, 0.0};
+  	double K_D3[DIMENSION] = {0.0, 0.0, 1.0};
+
+  	//謎の初期化
+  	for( k = 0; k < N_IntegrationPoint; k++ ){
+		for( i = 0; i < NElements; i++ ){
+	  		for( j = 0; j < DIMENSION; j++ ){
+				W_1[i][k][j] = 0.0;
+				W_2[i][k][j] = 0.0;
+				W_3[i][k][j] = 0.0;
+	  		}
+		}
+  	}
+
+  //体積変化を考慮したひずみエネルギー密度とクロネッカーデルタの積をとる。
+  	for( k = 0; k < N_IntegrationPoint; k++ ){
+		for( i = 0; i < NElements; i++ ){
+	  		for( j = 0; j < DIMENSION; j++ ){
+				W_K_D1[i][k][j] = JW[i][k] * K_D1[j];
+				W_K_D2[i][k][j] = JW[i][k] * K_D2[j];
+				W_K_D3[i][k][j] = JW[i][k] * K_D3[j];
+	  		}
+		}
+  	}
+
+  	for( k = 0; k < N_IntegrationPoint; k++ ){
+		for( i = 0; i < NElements; i++ ){
+	
+			W_1[i][k][0] += Pai[i][k][0][0] * Disp_grad_1[i][k][0] + Pai[i][k][0][1] * Disp_grad_1[i][k][1] + Pai[i][k][0][2] * Disp_grad_1[i][k][2];
+			W_1[i][k][1] += Pai[i][k][1][0] * Disp_grad_1[i][k][0] + Pai[i][k][1][1] * Disp_grad_1[i][k][1] + Pai[i][k][1][2] * Disp_grad_1[i][k][2];
+			W_1[i][k][2] += Pai[i][k][2][0] * Disp_grad_1[i][k][0] + Pai[i][k][2][1] * Disp_grad_1[i][k][1] + Pai[i][k][2][2] * Disp_grad_1[i][k][2];
+	
+			W_2[i][k][0] += Pai[i][k][0][0] * Disp_grad_2[i][k][0] + Pai[i][k][0][1] * Disp_grad_2[i][k][1] + Pai[i][k][0][2] * Disp_grad_2[i][k][2];
+			W_2[i][k][1] += Pai[i][k][1][0] * Disp_grad_2[i][k][0] + Pai[i][k][1][1] * Disp_grad_2[i][k][1] + Pai[i][k][1][2] * Disp_grad_2[i][k][2];	
+			W_2[i][k][2] += Pai[i][k][2][0] * Disp_grad_2[i][k][0] + Pai[i][k][2][1] * Disp_grad_2[i][k][1] + Pai[i][k][2][2] * Disp_grad_2[i][k][2];
+		
+			W_3[i][k][0] += Pai[i][k][0][0] * Disp_grad_3[i][k][0] + Pai[i][k][0][1] * Disp_grad_3[i][k][1] + Pai[i][k][0][2] * Disp_grad_3[i][k][2];
+			W_3[i][k][1] += Pai[i][k][1][0] * Disp_grad_3[i][k][0] + Pai[i][k][1][1] * Disp_grad_3[i][k][1] + Pai[i][k][1][2] * Disp_grad_3[i][k][2];	
+			W_3[i][k][2] += Pai[i][k][2][0] * Disp_grad_3[i][k][0] + Pai[i][k][2][1] * Disp_grad_3[i][k][1] + Pai[i][k][2][2] * Disp_grad_3[i][k][2];
+		}
+  	} 	
+
+  	for( k = 0; k < N_IntegrationPoint; k++ ){
+    		for( i = 0; i < NElements; i++ ){
+      		for( j = 0; j < DIMENSION; j++ ){
+				P_1j[i][k][j] = W_K_D1[i][k][j] - W_1[i][k][j];
+				P_2j[i][k][j] = W_K_D2[i][k][j] - W_2[i][k][j];
+				P_3j[i][k][j] = W_K_D3[i][k][j] - W_3[i][k][j];
+      		}
+    		}
+  	}
+}
+//ひずみエネルギー密度直接or体積変化を考慮したものをJWに代入する。
+int Make_JW()
+{
+  	int i,k;
+  	//ひずみエネルギー密度に体積変化を考慮した。
+  	if(deform==1){
+  		for( i = 0; i < NElements; i++ ){
+  			for( k = 0; k < N_IntegrationPoint; k++ ){
+	  			JW[i][k]= W[i][k];
+			}
+  		}
+  	}
+  	else if(deform==2){
+  		for( i = 0; i < NElements; i++ ){
+  			for( k = 0; k < N_IntegrationPoint; k++ ){
+	  			JW[i][k]= JJ[i][k] * W[i][k];
+			}
+  		}
+  	}
+}
+
+/***********************************************************************
+				要素のガウス点のglobal座標を求める。
+***********************************************************************/
+void make_Gxi_coord_Tetra_10()
+{
+	int e,N,i,j,k;
+	double X[NO_NODES_ON_ELEMENT_T10][DIMENSION];
+	double Gxi[4][3]={{0.13819660112501051518,0.58541019662496845446,0.13819660112501051518},
+					 {0.13819660112501051518,0.13819660112501051518,0.13819660112501051518},
+					 {0.13819660112501051518,0.13819660112501051518,0.58541019662496845446},
+					 {0.58541019662496845446,0.13819660112501051518,0.13819660112501051518}};
+
+	for( e = 0; e < NElements; e++ ){
+		for( N = 0; N < N_IntegrationPoint; N++)
+		{
+			for( i = 0; i < DIMENSION; i++)
+			{
+				Gxi_coord[e][N][i] = 0.0;                    //初期化
+			}
+			for( i = 0; i < Number_of_Nodes_on_Elements; i++ )
+			{
+				for( j = 0; j < DIMENSION; j++ )
+				{
+					X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j];  //要素ごとの節点IDの座標を格納
+				}
+			}
+				for( i = 0; i < DIMENSION; i++ )
+				{
+					for(k = 0; k<  Number_of_Nodes_on_Elements; k++)
+					{
+						Gxi_coord[e][N][i] += N_Tetra_10( k, Gxi[N] ) * X[k][i];  //それぞれの要素のガウス点の座標をglobal座標系で表す
+					}
+				}
+		}
+	}
+}
+void make_Gxi_coord_Tetra_4()
+{
+	int e,N,i,j,k;
+	double X[NO_NODES_ON_ELEMENT_T4][DIMENSION];
+	double Gxi[1][3]={0.25,0.25,0.25};
+
+	for( e = 0; e < NElements; e++ ){
+		for( N = 0; N < N_IntegrationPoint; N++)
+		{
+			for( i = 0; i < DIMENSION; i++)
+			{
+				Gxi_coord[e][N][i] = 0.0;                    //初期化
+			}
+			for( i = 0; i < Number_of_Nodes_on_Elements; i++ )
+			{
+				for( j = 0; j < DIMENSION; j++ )
+				{
+					X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j];  //要素ごとの節点IDの座標を格納
+				}
+			}
+				for( i = 0; i < DIMENSION; i++ )
+				{
+					for(k = 0; k<  Number_of_Nodes_on_Elements; k++)
+					{
+						Gxi_coord[e][N][i] += N_Tetra_4( k, Gxi[N] ) * X[k][i];  //それぞれの要素のガウス点の座標をglobal座標系で表す
+					}
+				}
+		}
+	}
+}
+void make_Gxi_coord_Hexa_8()
+{
+	int e,N,i,j,k;
+	double X[NO_NODES_ON_ELEMENT_H8][DIMENSION];
+	double Gxi[8][3]=	{{-0.57735026918962584208,-0.57735026918962584208,-0.57735026918962584208},
+					 { 0.57735026918962584208,-0.57735026918962584208,-0.57735026918962584208},
+					 {-0.57735026918962584208, 0.57735026918962584208,-0.57735026918962584208},
+					 { 0.57735026918962584208, 0.57735026918962584208,-0.57735026918962584208},
+					 {-0.57735026918962584208,-0.57735026918962584208, 0.57735026918962584208},
+					 { 0.57735026918962584208,-0.57735026918962584208, 0.57735026918962584208},
+					 {-0.57735026918962584208, 0.57735026918962584208, 0.57735026918962584208},
+					 { 0.57735026918962584208, 0.57735026918962584208, 0.57735026918962584208}};
+
+	for( e = 0; e < NElements; e++ ){
+		for( N = 0; N < N_IntegrationPoint; N++)
+		{
+			for( i = 0; i < DIMENSION; i++)
+			{
+				Gxi_coord[e][N][i] = 0.0;                    //初期化
+			}
+			for( i = 0; i < Number_of_Nodes_on_Elements; i++ )
+			{
+				for( j = 0; j < DIMENSION; j++ )
+				{
+					X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j];  //要素ごとの節点IDの座標を格納
+				}
+			}
+				for( i = 0; i < DIMENSION; i++ )
+				{
+					for(k = 0; k<  Number_of_Nodes_on_Elements; k++)
+					{
+						Gxi_coord[e][N][i] += N_Hexa_8( k, Gxi[N] ) * X[k][i];  //それぞれの要素のガウス点の座標をglobal座標系で表す
+					}
+				}
+		}
+	}
+}
+void make_Gxi_coord_Hexa_20()
+{
+	int e,N,i,j,k;
+	double X[NO_NODES_ON_ELEMENT_H20][DIMENSION];
+	double Gxi[27][3]={{-0.77459666924148340428 	,-0.77459666924148340428 	,-0.77459666924148340428},
+					  {  		0 	 		,-0.77459666924148340428 	,-0.77459666924148340428},
+					  { 0.77459666924148340428 	,-0.77459666924148340428   	,-0.77459666924148340428},
+					  {-0.77459666924148340428 	, 		 	0			,-0.77459666924148340428},
+					  {  		0			,			0			,-0.77459666924148340428},
+					  { 0.77459666924148340428 	, 			0			,-0.77459666924148340428},
+					  {-0.77459666924148340428 	, 0.77459666924148340428 	,-0.77459666924148340428},
+					  { 		 	0 			, 0.77459666924148340428 	,-0.77459666924148340428},
+					  { 0.77459666924148340428 	, 0.77459666924148340428 	,-0.77459666924148340428},
+					  {-0.77459666924148340428 	,-0.77459666924148340428 	,		 0			},
+					  {  		0 			,-0.77459666924148340428 	, 		 0			},
+					  { 0.77459666924148340428 	,-0.77459666924148340428   	, 		 0			},
+					  {-0.77459666924148340428 	,  			0			,  		 0			},
+					  {  		0			, 			0			,  		 0   		},
+					  { 0.77459666924148340428 	,  			0			,  		 0			},
+					  {-0.77459666924148340428 	, 0.77459666924148340428 	,  		 0			},
+					  {  		0		 	, 0.77459666924148340428 	,  		 0			},
+					  { 0.77459666924148340428 	, 0.77459666924148340428 	,  		 0			},
+					  {-0.77459666924148340428 	,-0.77459666924148340428 	, 0.77459666924148340428},
+					  {  		0 			,-0.77459666924148340428 	, 0.77459666924148340428},
+					  { 0.77459666924148340428 	,-0.77459666924148340428   	, 0.77459666924148340428},
+					  {-0.77459666924148340428 	,  			0			, 0.77459666924148340428},
+					  {  		0			, 			0			, 0.77459666924148340428},
+					  { 0.77459666924148340428 	, 			0			, 0.77459666924148340428},
+					  {-0.77459666924148340428 	, 0.77459666924148340428 	, 0.77459666924148340428},
+					  { 		 	0 			, 0.77459666924148340428 	, 0.77459666924148340428},
+					  { 0.77459666924148340428 	, 0.77459666924148340428 	, 0.77459666924148340428}};
+
+	for( e = 0; e < NElements; e++ ){
+		for( N = 0; N < N_IntegrationPoint; N++)
+		{
+			for( i = 0; i < DIMENSION; i++)
+			{
+				Gxi_coord[e][N][i] = 0.0;                    //初期化
+			}
+			for( i = 0; i < Number_of_Nodes_on_Elements; i++ )
+			{
+				for( j = 0; j < DIMENSION; j++ )
+				{
+					X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j];  //要素ごとの節点IDの座標を格納
+				}
+			}
+				for( i = 0; i < DIMENSION; i++ )
+				{
+					for(k = 0; k<  Number_of_Nodes_on_Elements; k++)
+					{
+						Gxi_coord[e][N][i] += N_Hexa_20( k, Gxi[N] ) * X[k][i];  //それぞれの要素のガウス点の座標をglobal座標系で表す
+					}
+				}
+		}
+	}
+}
+/***********************************************************************
+勾配を求めるための行列作成。※もともとBマトリクス作成ツールを改造したものらしい。
+***********************************************************************/
+int Make_Gradient_Matrix_Tetra_10(double B_1[DIMENSION][KIEL_SIZE_T10], double B_2[DIMENSION][KIEL_SIZE_T10], double B_3[DIMENSION][KIEL_SIZE_T10],
+				 double Local_coord[DIMENSION], double X[NO_NODES_ON_ELEMENT_T10][DIMENSION], double *J )
+{
+
+  	static double a[DIMENSION][DIMENSION], b[DIMENSION][NO_NODES_ON_ELEMENT_T10];
+	int i,j,k;
+
+	Jacobian_Tetra_10( a, Local_coord, X );
+
+	*J = InverseMatrix_3D( a )/6.0;
+
+	if( *J <= 0 )return -999;
+
+
+	/*ヤコビアンの逆行列[3×3]×形状関数の微分[3×10(要素にある節点数)]*/
+	for( i = 0; i < DIMENSION; i++ ){
+		for( j = 0; j < Number_of_Nodes_on_Elements; j++ ){
+			b[i][j] = 0.0;
+			for( k = 0; k < DIMENSION; k++ ){
+				b[i][j] += a[k][i] * dN_Tetra_10( j, Local_coord, k);
+			}
+		}
+	}
+	//B1=∂N/∂xの対角行列がN0~N10まで並んでる。B2は∂N/∂y...
+	for( i = 0; i < Number_of_Nodes_on_Elements; i++ ){
+	  	B_1[0][3*i] = b[0][i];    B_1[0][3*i+1] = 0.0;        B_1[0][3*i+2] = 0.0;
+	  	B_1[1][3*i] = 0.0;        B_1[1][3*i+1] = b[0][i];    B_1[1][3*i+2] = 0.0;
+	  	B_1[2][3*i] = 0.0;        B_1[2][3*i+1] = 0.0;        B_1[2][3*i+2] = b[0][i];
+
+		B_2[0][3*i] = b[1][i];    B_2[0][3*i+1] = 0.0;        B_2[0][3*i+2] = 0.0;
+	  	B_2[1][3*i] = 0.0;        B_2[1][3*i+1] = b[1][i];    B_2[1][3*i+2] = 0.0;
+	  	B_2[2][3*i] = 0.0;        B_2[2][3*i+1] = 0.0;        B_2[2][3*i+2] = b[1][i];
+	
+	  	B_3[0][3*i] = b[2][i];    B_3[0][3*i+1] = 0.0;        B_3[0][3*i+2] = 0.0;
+	  	B_3[1][3*i] = 0.0;        B_3[1][3*i+1] = b[2][i];    B_3[1][3*i+2] = 0.0;
+	  	B_3[2][3*i] = 0.0;        B_3[2][3*i+1] = 0.0;        B_3[2][3*i+2] = b[2][i];		
+	}
+
+	return 0;
+}
+int Make_Gradient_Matrix_Tetra_4(double B_1[DIMENSION][KIEL_SIZE_T4], double B_2[DIMENSION][KIEL_SIZE_T4], double B_3[DIMENSION][KIEL_SIZE_T4],
+				 double Local_coord[DIMENSION], double X[NO_NODES_ON_ELEMENT_T4][DIMENSION], double *J )
+{
+  	static double a[DIMENSION][DIMENSION], b[DIMENSION][NO_NODES_ON_ELEMENT_T4];
+	int i,j,k;
+
+	Jacobian_Tetra_4( a, Local_coord, X );
+	*J = InverseMatrix_3D( a )/6.0;
+	if( *J <= 0 )return -999;
+
+	/*ヤコビアンの逆行列[3×3]×形状関数の微分[3×4(要素にある節点数)]*/
+	for( i = 0; i < DIMENSION; i++ ){
+		for( j = 0; j < Number_of_Nodes_on_Elements; j++ ){
+			b[i][j] = 0.0;
+			for( k = 0; k < DIMENSION; k++ ){
+				b[i][j] += a[k][i] * dN_Tetra_4( j, Local_coord, k);
+			}
+		}
+	}
+	//B1=∂N/∂xの対角行列がN0~N10まで並んでる。B2は∂N/∂y...
+	for( i = 0; i < Number_of_Nodes_on_Elements; i++ ){
+	  	B_1[0][3*i] = b[0][i];    B_1[0][3*i+1] = 0.0;        B_1[0][3*i+2] = 0.0;
+	  	B_1[1][3*i] = 0.0;        B_1[1][3*i+1] = b[0][i];    B_1[1][3*i+2] = 0.0;
+	  	B_1[2][3*i] = 0.0;        B_1[2][3*i+1] = 0.0;        B_1[2][3*i+2] = b[0][i];
+
+		B_2[0][3*i] = b[1][i];    B_2[0][3*i+1] = 0.0;        B_2[0][3*i+2] = 0.0;
+	  	B_2[1][3*i] = 0.0;        B_2[1][3*i+1] = b[1][i];    B_2[1][3*i+2] = 0.0;
+	  	B_2[2][3*i] = 0.0;        B_2[2][3*i+1] = 0.0;        B_2[2][3*i+2] = b[1][i];
+	
+	  	B_3[0][3*i] = b[2][i];    B_3[0][3*i+1] = 0.0;        B_3[0][3*i+2] = 0.0;
+	  	B_3[1][3*i] = 0.0;        B_3[1][3*i+1] = b[2][i];    B_3[1][3*i+2] = 0.0;
+	  	B_3[2][3*i] = 0.0;        B_3[2][3*i+1] = 0.0;        B_3[2][3*i+2] = b[2][i];	
+	}
+
+	return 0;
+}
+int Make_Gradient_Matrix_Hexa_8(double B_1[DIMENSION][KIEL_SIZE_H8], double B_2[DIMENSION][KIEL_SIZE_H8], double B_3[DIMENSION][KIEL_SIZE_H8],
+				 double Local_coord[DIMENSION], double X[NO_NODES_ON_ELEMENT_H8][DIMENSION], double *J )
+{
+
+  	static double a[DIMENSION][DIMENSION], b[DIMENSION][NO_NODES_ON_ELEMENT_H8];
+	int i,j,k;
+
+	Jacobian_Hexa_8( a, Local_coord, X );
+	*J = InverseMatrix_3D( a );
+	if( *J <= 0 )return -999;
+
+	/*ヤコビアンの逆行列[3×3]×形状関数の微分[3×8(要素にある節点数)]*/
+	for( i = 0; i < DIMENSION; i++ ){
+		for( j = 0; j < Number_of_Nodes_on_Elements; j++ ){
+			b[i][j] = 0.0;
+			for( k = 0; k < DIMENSION; k++ ){
+				b[i][j] += a[k][i] * dN_Hexa_8( j, Local_coord, k);
+			}
+		}
+	}
+	//int iii;
+	//B1=∂N/∂xの対角行列がN0~N10まで並んでる。B2は∂N/∂y...
+	for( i = 0; i < Number_of_Nodes_on_Elements; i++ ){
+	  	B_1[0][3*i] = b[0][i];    B_1[0][3*i+1] = 0.0;        B_1[0][3*i+2] = 0.0;
+	  	B_1[1][3*i] = 0.0;        B_1[1][3*i+1] = b[0][i];    B_1[1][3*i+2] = 0.0;
+	  	B_1[2][3*i] = 0.0;        B_1[2][3*i+1] = 0.0;        B_1[2][3*i+2] = b[0][i];
+
+		B_2[0][3*i] = b[1][i];    B_2[0][3*i+1] = 0.0;        B_2[0][3*i+2] = 0.0;
+	  	B_2[1][3*i] = 0.0;        B_2[1][3*i+1] = b[1][i];    B_2[1][3*i+2] = 0.0;
+	  	B_2[2][3*i] = 0.0;        B_2[2][3*i+1] = 0.0;        B_2[2][3*i+2] = b[1][i];
+	
+	  	B_3[0][3*i] = b[2][i];    B_3[0][3*i+1] = 0.0;        B_3[0][3*i+2] = 0.0;
+	  	B_3[1][3*i] = 0.0;        B_3[1][3*i+1] = b[2][i];    B_3[1][3*i+2] = 0.0;
+	  	B_3[2][3*i] = 0.0;        B_3[2][3*i+1] = 0.0;        B_3[2][3*i+2] = b[2][i];	
+	  	/*for(iii=0;iii<3;iii++){
+	  		printf("B1[%d]= %lf %lf %lf \n",iii,B_1[iii][3*i],B_1[iii][3*i+1],B_1[iii][3*i+2]);
+	  	}
+	  	for(iii=0;iii<3;iii++){
+	  		printf("B2[%d]= %lf %lf %lf \n",iii,B_2[iii][3*i],B_2[iii][3*i+1],B_2[iii][3*i+2]);
+	  	}	  	
+	  	for(iii=0;iii<3;iii++){
+	  		printf("B3[%d]= %lf %lf %lf \n",iii,B_3[iii][3*i],B_3[iii][3*i+1],B_3[iii][3*i+2]);
+	  	}*/
+	}
+
+	return 0;
+}
+int Make_Gradient_Matrix_Hexa_20(double B_1[DIMENSION][KIEL_SIZE_H20], double B_2[DIMENSION][KIEL_SIZE_H20], double B_3[DIMENSION][KIEL_SIZE_H20],
+				 double Local_coord[DIMENSION], double X[NO_NODES_ON_ELEMENT_H20][DIMENSION], double *J )
+{
+  	static double a[DIMENSION][DIMENSION], b[DIMENSION][NO_NODES_ON_ELEMENT_H20];
+	int i,j,k;
+
+	Jacobian_Hexa_8( a, Local_coord, X );
+	*J = InverseMatrix_3D( a );
+	if( *J <= 0 )return -999;
+
+	/*ヤコビアンの逆行列[3×3]×形状関数の微分[3×10(要素にある節点数)]*/
+	for( i = 0; i < DIMENSION; i++ ){
+		for( j = 0; j < Number_of_Nodes_on_Elements; j++ ){
+			b[i][j] = 0.0;
+			for( k = 0; k < DIMENSION; k++ ){
+				b[i][j] += a[k][i] * dN_Hexa_8( j, Local_coord, k);
+			}
+		}
+	}
+	//B1=∂N/∂xの対角行列がN0~N10まで並んでる。B2は∂N/∂y...
+	for( i = 0; i < Number_of_Nodes_on_Elements; i++ ){
+	  	B_1[0][3*i] = b[0][i];    B_1[0][3*i+1] = 0.0;        B_1[0][3*i+2] = 0.0;
+	  	B_1[1][3*i] = 0.0;        B_1[1][3*i+1] = b[0][i];    B_1[1][3*i+2] = 0.0;
+	  	B_1[2][3*i] = 0.0;        B_1[2][3*i+1] = 0.0;        B_1[2][3*i+2] = b[0][i];
+
+		B_2[0][3*i] = b[1][i];    B_2[0][3*i+1] = 0.0;        B_2[0][3*i+2] = 0.0;
+	  	B_2[1][3*i] = 0.0;        B_2[1][3*i+1] = b[1][i];    B_2[1][3*i+2] = 0.0;
+	  	B_2[2][3*i] = 0.0;        B_2[2][3*i+1] = 0.0;        B_2[2][3*i+2] = b[1][i];
+	
+	  	B_3[0][3*i] = b[2][i];    B_3[0][3*i+1] = 0.0;        B_3[0][3*i+2] = 0.0;
+	  	B_3[1][3*i] = 0.0;        B_3[1][3*i+1] = b[2][i];    B_3[1][3*i+2] = 0.0;
+	  	B_3[2][3*i] = 0.0;        B_3[2][3*i+1] = 0.0;        B_3[2][3*i+2] = b[2][i];	
+	}
+
+	return 0;
+}
+/***********************************************************************
+					全要素での変位勾配作成
+***********************************************************************/
+void Make_Disp_grad_2_Tetra_10(){
+	static double U[KIEL_SIZE_T10];
+	static double B_1[DIMENSION][KIEL_SIZE_T10], B_2[DIMENSION][KIEL_SIZE_T10], B_3[DIMENSION][KIEL_SIZE_T10];
+	static double X[NO_NODES_ON_ELEMENT_T10][DIMENSION],J;
+	int N,e,i,j;
+	double Gxi[4][3]={{0.13819660112501051518,0.58541019662496845446,0.13819660112501051518},
+					 {0.13819660112501051518,0.13819660112501051518,0.13819660112501051518},
+					 {0.13819660112501051518,0.13819660112501051518,0.58541019662496845446},
+					 {0.58541019662496845446,0.13819660112501051518,0.13819660112501051518}};
+
+	if(DispMode==0){
+		for( e = 0; e < NElements; e++ ){
+			for( i = 0; i < Number_of_Nodes_on_Elements; i++ ){
+				for( j = 0; j < DIMENSION; j++ ){
+					U[ i*DIMENSION +j ] = Displacement[ElementNodeId_s[e][i]][j];
+					X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j];      //初期配置
+				}
+			}
+			for( N = 0; N < N_IntegrationPoint; N++ ){
+		  		Make_Gradient_Matrix_Tetra_10(B_1, B_2, B_3, Gxi[N], X ,&J);
+				for( i = 0; i < DIMENSION; i++ ){
+					for( j = 0; j < KIEL_SIZE_T10; j++ ){
+				  		Disp_grad_1[e][N][i] += B_1[i][j] * U[j]; //Displacementの値の∂N/∂x成分を計算
+				  		Disp_grad_2[e][N][i] += B_2[i][j] * U[j]; //Displacementの値の∂N/∂y成分を計算
+				  		Disp_grad_3[e][N][i] += B_3[i][j] * U[j]; //Displacementの値の∂N/∂z成分を計算
+					}
+				}
+			}
+		}
+	}
+	else if(DispMode==1){
+		for( e = 0; e < NElements; e++ ){
+			for( i = 0; i < Number_of_Nodes_on_Elements; i++ ){
+				for( j = 0; j < DIMENSION; j++ ){
+					U[ i*DIMENSION +j ] = Displacement[ ElementNodeId_s[e][i]][j];
+					X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j]
+									+Displacement[ ElementNodeId_s[e][i]][j];  //現在配置
+				}
+			}
+			for( N = 0; N < N_IntegrationPoint; N++ ){
+		  		Make_Gradient_Matrix_Tetra_10(B_1, B_2, B_3, Gxi[N], X ,&J);
+				for( i = 0; i < DIMENSION; i++ ){
+					for( j = 0; j < KIEL_SIZE_T10; j++ ){
+				  		Disp_grad_1[e][N][i] += B_1[i][j] * U[j]; //Displacementの値の∂N/∂x成分を計算
+				  		Disp_grad_2[e][N][i] += B_2[i][j] * U[j]; //Displacementの値の∂N/∂y成分を計算
+				  		Disp_grad_3[e][N][i] += B_3[i][j] * U[j]; //Displacementの値の∂N/∂z成分を計算
+					}
+				}
+			}
+		}
+	}
+
+	//Output_Disp_grad_Data();
+}
+void Make_Disp_grad_2_Tetra_4(){
+	static double U[KIEL_SIZE_T4];
+	static double B_1[DIMENSION][KIEL_SIZE_T4], B_2[DIMENSION][KIEL_SIZE_T4], B_3[DIMENSION][KIEL_SIZE_T4];
+	static double X[NO_NODES_ON_ELEMENT_T4][DIMENSION],J;
+	int N,e,i,j;
+	double Gxi[1][3]={0.25,0.25,0.25};
+
+	if(DispMode==0){
+		for( e = 0; e < NElements; e++ ){
+			for( i = 0; i < Number_of_Nodes_on_Elements; i++ ){
+				for( j = 0; j < DIMENSION; j++ ){
+					U[ i*DIMENSION +j ] = Displacement[ElementNodeId_s[e][i]][j];
+					X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j];      //初期配置
+				}
+			}
+			for( N = 0; N < N_IntegrationPoint; N++ ){
+		  		Make_Gradient_Matrix_Tetra_4(B_1, B_2, B_3, Gxi[N], X ,&J );
+				for( i = 0; i < DIMENSION; i++ ){
+					for( j = 0; j < KIEL_SIZE_T4; j++ ){
+				  		Disp_grad_1[e][N][i] += B_1[i][j] * U[j]; //Displacementの値の∂N/∂x成分を計算
+				  		Disp_grad_2[e][N][i] += B_2[i][j] * U[j]; //Displacementの値の∂N/∂y成分を計算
+				  		Disp_grad_3[e][N][i] += B_3[i][j] * U[j]; //Displacementの値の∂N/∂z成分を計算
+					}
+				}
+			}
+		}
+	}
+	else if(DispMode==1){
+		for( e = 0; e < NElements; e++ ){
+			for( i = 0; i < Number_of_Nodes_on_Elements; i++ ){
+				for( j = 0; j < DIMENSION; j++ ){
+					U[ i*DIMENSION +j ] = Displacement[ ElementNodeId_s[e][i]][j];
+					X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j]
+									+Displacement[ ElementNodeId_s[e][i]][j];  //現在配置
+				}
+			}
+			for( N = 0; N < N_IntegrationPoint; N++ ){
+		  		Make_Gradient_Matrix_Tetra_4(B_1, B_2, B_3, Gxi[N], X ,&J );
+				for( i = 0; i < DIMENSION; i++ ){
+					for( j = 0; j < KIEL_SIZE_T4; j++ ){
+				  		Disp_grad_1[e][N][i] += B_1[i][j] * U[j]; //Displacementの値の∂N/∂x成分を計算
+				  		Disp_grad_2[e][N][i] += B_2[i][j] * U[j]; //Displacementの値の∂N/∂y成分を計算
+				  		Disp_grad_3[e][N][i] += B_3[i][j] * U[j]; //Displacementの値の∂N/∂z成分を計算
+					}
+				}
+			}
+		}
+	}
+	//Output_Disp_grad_Data();
+}
+void Make_Disp_grad_2_Hexa_8(){
+	static double U[KIEL_SIZE_H8];
+	static double B_1[DIMENSION][KIEL_SIZE_H8], B_2[DIMENSION][KIEL_SIZE_H8], B_3[DIMENSION][KIEL_SIZE_H8];
+	static double X[NO_NODES_ON_ELEMENT_H8][DIMENSION],J;
+	int N,e,i,j;
+	double Gxi[8][3]=	{{-0.57735026918962584208,-0.57735026918962584208,-0.57735026918962584208},
+					 { 0.57735026918962584208,-0.57735026918962584208,-0.57735026918962584208},
+					 {-0.57735026918962584208, 0.57735026918962584208,-0.57735026918962584208},
+					 { 0.57735026918962584208, 0.57735026918962584208,-0.57735026918962584208},
+					 {-0.57735026918962584208,-0.57735026918962584208, 0.57735026918962584208},
+					 { 0.57735026918962584208,-0.57735026918962584208, 0.57735026918962584208},
+					 {-0.57735026918962584208, 0.57735026918962584208, 0.57735026918962584208},
+					 { 0.57735026918962584208, 0.57735026918962584208, 0.57735026918962584208}};
+
+	if(DispMode==0){
+		for( e = 0; e < NElements; e++ ){
+			for( i = 0; i < Number_of_Nodes_on_Elements; i++ ){
+				for( j = 0; j < DIMENSION; j++ ){
+					U[ i*DIMENSION +j ] = Displacement[ElementNodeId_s[e][i]][j];
+					X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j];      //初期配置
+				}
+			}
+			for( N = 0; N < N_IntegrationPoint; N++ ){
+		  		Make_Gradient_Matrix_Hexa_8(B_1, B_2, B_3, Gxi[N], X ,&J );
+				for( i = 0; i < DIMENSION; i++ ){
+					for( j = 0; j < KIEL_SIZE_H8; j++ ){
+				  		Disp_grad_1[e][N][i] += B_1[i][j] * U[j]; //Displacementの値の∂N/∂x成分を計算
+				  		Disp_grad_2[e][N][i] += B_2[i][j] * U[j]; //Displacementの値の∂N/∂y成分を計算
+				  		Disp_grad_3[e][N][i] += B_3[i][j] * U[j]; //Displacementの値の∂N/∂z成分を計算
+					}
+				}
+			}
+		}
+	}
+	else if(DispMode==1){
+		for( e = 0; e < NElements; e++ ){
+			for( i = 0; i < Number_of_Nodes_on_Elements; i++ ){
+				for( j = 0; j < DIMENSION; j++ ){
+					U[ i*DIMENSION +j ] = Displacement[ ElementNodeId_s[e][i]][j];
+					X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j]
+									+Displacement[ ElementNodeId_s[e][i]][j];  //現在配置
+				}
+			}
+			for( N = 0; N < N_IntegrationPoint; N++ ){
+		  		Make_Gradient_Matrix_Hexa_8(B_1, B_2, B_3, Gxi[N], X ,&J );
+				for( i = 0; i < DIMENSION; i++ ){
+					for( j = 0; j < KIEL_SIZE_H8; j++ ){
+				  		Disp_grad_1[e][N][i] += B_1[i][j] * U[j]; //Displacementの値の∂N/∂x成分を計算
+				  		Disp_grad_2[e][N][i] += B_2[i][j] * U[j]; //Displacementの値の∂N/∂y成分を計算
+				  		Disp_grad_3[e][N][i] += B_3[i][j] * U[j]; //Displacementの値の∂N/∂z成分を計算
+					}
+				}
+			}
+		}
+	}
+	//Output_Disp_grad_Data();
+}
+void Make_Disp_grad_2_Hexa_20(){
+	static double U[KIEL_SIZE_H20];
+	static double B_1[DIMENSION][KIEL_SIZE_H20], B_2[DIMENSION][KIEL_SIZE_H20], B_3[DIMENSION][KIEL_SIZE_H20];
+	static double X[NO_NODES_ON_ELEMENT_H20][DIMENSION],J;
+	int N,e,i,j;
+	double Gxi[27][3]={{-0.77459666924148340428 	,-0.77459666924148340428 	,-0.77459666924148340428},
+					  {  		0 	 		,-0.77459666924148340428 	,-0.77459666924148340428},
+					  { 0.77459666924148340428 	,-0.77459666924148340428   	,-0.77459666924148340428},
+					  {-0.77459666924148340428 	, 		 	0			,-0.77459666924148340428},
+					  {  		0			,			0			,-0.77459666924148340428},
+					  { 0.77459666924148340428 	, 			0			,-0.77459666924148340428},
+					  {-0.77459666924148340428 	, 0.77459666924148340428 	,-0.77459666924148340428},
+					  { 		 	0 			, 0.77459666924148340428 	,-0.77459666924148340428},
+					  { 0.77459666924148340428 	, 0.77459666924148340428 	,-0.77459666924148340428},
+					  {-0.77459666924148340428 	,-0.77459666924148340428 	,		 0			},
+					  {  		0 			,-0.77459666924148340428 	, 		 0			},
+					  { 0.77459666924148340428 	,-0.77459666924148340428   	, 		 0			},
+					  {-0.77459666924148340428 	,  			0			,  		 0			},
+					  {  		0			, 			0			,  		 0   		},
+					  { 0.77459666924148340428 	,  			0			,  		 0			},
+					  {-0.77459666924148340428 	, 0.77459666924148340428 	,  		 0			},
+					  {  		0		 	, 0.77459666924148340428 	,  		 0			},
+					  { 0.77459666924148340428 	, 0.77459666924148340428 	,  		 0			},
+					  {-0.77459666924148340428 	,-0.77459666924148340428 	, 0.77459666924148340428},
+					  {  		0 			,-0.77459666924148340428 	, 0.77459666924148340428},
+					  { 0.77459666924148340428 	,-0.77459666924148340428   	, 0.77459666924148340428},
+					  {-0.77459666924148340428 	,  			0			, 0.77459666924148340428},
+					  {  		0			, 			0			, 0.77459666924148340428},
+					  { 0.77459666924148340428 	, 			0			, 0.77459666924148340428},
+					  {-0.77459666924148340428 	, 0.77459666924148340428 	, 0.77459666924148340428},
+					  { 		 	0 			, 0.77459666924148340428 	, 0.77459666924148340428},
+					  { 0.77459666924148340428 	, 0.77459666924148340428 	, 0.77459666924148340428}};
+
+	if(DispMode==0){
+		for( e = 0; e < NElements; e++ ){
+			for( i = 0; i < Number_of_Nodes_on_Elements; i++ ){
+				for( j = 0; j < DIMENSION; j++ ){
+					U[ i*DIMENSION +j ] = Displacement[ElementNodeId_s[e][i]][j];
+					X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j];      //初期配置
+				}
+			}
+			for( N = 0; N < N_IntegrationPoint; N++ ){
+		  		Make_Gradient_Matrix_Hexa_20(B_1, B_2, B_3, Gxi[N], X ,&J );
+				for( i = 0; i < DIMENSION; i++ ){
+					for( j = 0; j < KIEL_SIZE_H20; j++ ){
+				  		Disp_grad_1[e][N][i] += B_1[i][j] * U[j]; //Displacementの値の∂N/∂x成分を計算
+				  		Disp_grad_2[e][N][i] += B_2[i][j] * U[j]; //Displacementの値の∂N/∂y成分を計算
+				  		Disp_grad_3[e][N][i] += B_3[i][j] * U[j]; //Displacementの値の∂N/∂z成分を計算
+					}
+				}
+			}
+		}
+	}
+	else if(DispMode==1){
+		for( e = 0; e < NElements; e++ ){
+			for( i = 0; i < Number_of_Nodes_on_Elements; i++ ){
+				for( j = 0; j < DIMENSION; j++ ){
+					U[ i*DIMENSION +j ] = Displacement[ ElementNodeId_s[e][i]][j];
+					X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j]
+									+Displacement[ ElementNodeId_s[e][i]][j];  //現在配置
+				}
+			}
+			for( N = 0; N < N_IntegrationPoint; N++ ){
+		  		Make_Gradient_Matrix_Hexa_20(B_1, B_2, B_3, Gxi[N], X ,&J );
+				for( i = 0; i < DIMENSION; i++ ){
+					for( j = 0; j < KIEL_SIZE_H20; j++ ){
+				  		Disp_grad_1[e][N][i] += B_1[i][j] * U[j]; //Displacementの値の∂N/∂x成分を計算
+				  		Disp_grad_2[e][N][i] += B_2[i][j] * U[j]; //Displacementの値の∂N/∂y成分を計算
+				  		Disp_grad_3[e][N][i] += B_3[i][j] * U[j]; //Displacementの値の∂N/∂z成分を計算
+					}
+				}
+			}
+		}
+	}
+	//Output_Disp_grad_Data();
+}
+/****************************************************************************
+対角成分に∂N/∂x1,∂N/∂x2,∂N/∂x3,が並ぶ勾配を求めるためのマトリクスを作る。
+******************************************************************************/
+int Make_B_q_Matrix_Tetra_10(double B_q[DIMENSION][KIEL_SIZE_T10], double Local_coord[DIMENSION], double X[NO_NODES_ON_ELEMENT_T10][DIMENSION], double *J ){
+	
+	static double a[DIMENSION][DIMENSION], b[DIMENSION][NO_NODES_ON_ELEMENT_T10];
+	int i,j,k;
+
+	Jacobian_Tetra_10( a, Local_coord, X );
+
+	*J = InverseMatrix_3D( a )/6.0;
+	if( *J <= 0 )return -999;
+
+	for( i = 0; i < DIMENSION; i++ ){
+		for( j = 0; j < NO_NODES_ON_ELEMENT_T10; j++ ){
+			b[i][j] = 0.0;
+			for( k = 0; k < DIMENSION; k++ ){
+				b[i][j] += a[k][i] * dN_Tetra_10( j, Local_coord, k);
+			}
+		}
+	}
+	for( i = 0; i < NO_NODES_ON_ELEMENT_T10; i++ ){
+
+		B_q[0][3*i] = b[0][i];	B_q[0][3*i+1] = 0.0;		B_q[0][3*i+2] = 0.0;
+		B_q[1][3*i] = 0.0;		B_q[1][3*i+1] = b[1][i];	B_q[1][3*i+2] = 0.0;
+		B_q[2][3*i] = 0.0;		B_q[2][3*i+1] = 0.0;		B_q[2][3*i+2] = b[2][i];
+	}
+	return 0;
+}
+int Make_B_q_Matrix_Tetra_4(double B_q[DIMENSION][KIEL_SIZE_T4], double Local_coord[DIMENSION], double X[NO_NODES_ON_ELEMENT_T4][DIMENSION], double *J ){
+	
+	static double a[DIMENSION][DIMENSION], b[DIMENSION][NO_NODES_ON_ELEMENT_T4];
+	int i,j,k;
+
+	Jacobian_Tetra_4( a, Local_coord, X );
+
+	*J = InverseMatrix_3D( a )/6.0;
+	if( *J <= 0 )return -999;
+
+	for( i = 0; i < DIMENSION; i++ ){
+		for( j = 0; j < NO_NODES_ON_ELEMENT_T4; j++ ){
+			b[i][j] = 0.0;
+			for( k = 0; k < DIMENSION; k++ ){
+				b[i][j] += a[k][i] * dN_Tetra_4( j, Local_coord, k);
+			}
+		}
+	}
+	for( i = 0; i < NO_NODES_ON_ELEMENT_T4; i++ ){
+
+		B_q[0][3*i] = b[0][i];	B_q[0][3*i+1] = 0.0;		B_q[0][3*i+2] = 0.0;
+		B_q[1][3*i] = 0.0;		B_q[1][3*i+1] = b[1][i];	B_q[1][3*i+2] = 0.0;
+		B_q[2][3*i] = 0.0;		B_q[2][3*i+1] = 0.0;		B_q[2][3*i+2] = b[2][i];
+	}
+	return 0;
+}
+int Make_B_q_Matrix_Hexa_8(double B_q[DIMENSION][KIEL_SIZE_H8], double Local_coord[DIMENSION], double X[NO_NODES_ON_ELEMENT_H8][DIMENSION], double *J ){
+	
+	static double a[DIMENSION][DIMENSION], b[DIMENSION][NO_NODES_ON_ELEMENT_H8];
+	int i,j,k;
+
+	Jacobian_Hexa_8( a, Local_coord, X );
+
+	*J = InverseMatrix_3D( a );
+	if( *J <= 0 )return -999;
+
+	for( i = 0; i < DIMENSION; i++ ){
+		for( j = 0; j < NO_NODES_ON_ELEMENT_H8; j++ ){
+			b[i][j] = 0.0;
+			for( k = 0; k < DIMENSION; k++ ){
+				b[i][j] += a[k][i] * dN_Hexa_8( j, Local_coord, k);
+			}
+		}
+	}
+	for( i = 0; i < NO_NODES_ON_ELEMENT_H8; i++ ){
+
+		B_q[0][3*i] = b[0][i];	B_q[0][3*i+1] = 0.0;		B_q[0][3*i+2] = 0.0;
+		B_q[1][3*i] = 0.0;		B_q[1][3*i+1] = b[1][i];	B_q[1][3*i+2] = 0.0;
+		B_q[2][3*i] = 0.0;		B_q[2][3*i+1] = 0.0;		B_q[2][3*i+2] = b[2][i];
+	}
+	return 0;
+}
+int Make_B_q_Matrix_Hexa_20(double B_q[DIMENSION][KIEL_SIZE_H20], double Local_coord[DIMENSION], double X[NO_NODES_ON_ELEMENT_H20][DIMENSION], double *J ){
+	
+	static double a[DIMENSION][DIMENSION], b[DIMENSION][NO_NODES_ON_ELEMENT_H20];
+	int i,j,k;
+
+	Jacobian_Hexa_20( a, Local_coord, X );
+
+	*J = InverseMatrix_3D( a );
+	if( *J <= 0 )return -999;
+
+	for( i = 0; i < DIMENSION; i++ ){
+		for( j = 0; j < NO_NODES_ON_ELEMENT_H20; j++ ){
+			b[i][j] = 0.0;
+			for( k = 0; k < DIMENSION; k++ ){
+				b[i][j] += a[k][i] * dN_Hexa_20( j, Local_coord, k);
+			}
+		}
+	}
+	for( i = 0; i < NO_NODES_ON_ELEMENT_H20; i++ ){
+
+		B_q[0][3*i] = b[0][i];	B_q[0][3*i+1] = 0.0;		B_q[0][3*i+2] = 0.0;
+		B_q[1][3*i] = 0.0;		B_q[1][3*i+1] = b[1][i];	B_q[1][3*i+2] = 0.0;
+		B_q[2][3*i] = 0.0;		B_q[2][3*i+1] = 0.0;		B_q[2][3*i+2] = b[2][i];
+	}
+	return 0;
+}
+/***********************************************************************
+						以下新規関数
+***********************************************************************/
+
+double ComputeValueQFunc(double x, double y, double z,
+			 double z0, double z2, double z1,
+			 double xc, double yc, double zc,
+			 double r0, double r1,double xc2, double yc2, double zc2,
+			 int i,int n,double R,double Rc,double xr, double Rc2, double xr2,double theta,double theta2)
+{
+  	double xx = x - xc; double yy = y - yc; double zz = z - zc;
+	double xx2 = x - xc2; double yy2 = y - yc2; double zz2 = z - zc2;
+	double xt, yt, xt2, yt2;
+  	double rr, zzabs, xxabs, yyabs;
+	double rr2, zzabs2;
+	double Disp0; //サーチ点と亀裂前縁を繋ぐ直線の距離(xy)
+  	double qfunc=0.0;
+  	double Eps = 0.0000000001;
+  	zzabs = fabs(R-Rc);
+	xxabs = fabs(xx);
+	yyabs = fabs(yy);
+	xt = xr;
+	yt = yy;
+	xt2 = xr2;
+	yt2 = yy2;
+  	rr = sqrt(xt*xt + yt*yt);
+	zzabs2 = fabs(R-Rc2);
+  	rr2 = sqrt(xt2*xt2 + yt2*yt2);
+	Disp0 = yyabs;//2つの亀裂先端を繋ぐ線と節点の距離
+
+	
+
+  	/**************************************************************
+		台形の下に長方形がついた形の積分領域。下図の感じ。①③がVεの領域。
+			＿＿＿＿＿＿＿
+			|②| ④ /⑤ /  6
+			ーーーーーー-----
+			|①|   ③  | 7
+			ーーーーーー-----
+	*******************************************************************/
+
+
+
+
+
+
+
+///////Vε領域///////////////////////////////////////////////////////////////////////////////////////////////
+	//現在き裂moving領域
+	
+  	if(rr <= r0 + Eps && 0 <= xx){
+		if(zzabs <= z0){
+  			qfunc = 1.0;   //①
+  			Search_AreaFlag[i][n] = 1;
+		}
+  		else if( (z0 - Eps < zzabs) && (zzabs <= z1 ) ){
+			qfunc = 1.0 * (z1 - (zzabs - z0)) / z1;     //③
+			Search_AreaFlag[i][n]  =3;
+		}
+	}
+	//初期き裂moving領域
+
+  	else if(rr2 <= r0 + Eps && xx2 <= 0 ){
+		if(zzabs2 <= z0){
+  			qfunc = 1.0;   //①
+  			Search_AreaFlag[i][n] = 1;
+  		}
+  		else if((z0 - Eps < zzabs2) && (zzabs2 <= z1 ) ){
+  			qfunc = 1.0 * (z1 - (zzabs2 - z0)) / z1;     //③
+  			Search_AreaFlag[i][n]  =3;
+  		}
+	}
+
+	//elongating領域
+
+	else if( xx <= 0 && 0 <= xx2 && Disp0 <= r0 + Eps ){		//xx方向に関して初期亀裂と現在亀裂の間にある場合
+  		if(zzabs <= z0 ){
+			qfunc = 1.0;   //①
+  			Search_AreaFlag[i][n] = 1;
+		}
+  		else if((z0 - Eps < zzabs) && (zzabs <= z1 ) ){
+  			qfunc = 1.0 * (z1 - (zzabs - z0)) / z1;     //③
+  			Search_AreaFlag[i][n]  =3;
+  		}
+	}
+////////////V-Vε領域////////////////////////////////////////////////////////////////////
+
+	//現在き裂moving領域
+
+	else if( (r0 < rr) && (rr <= r1 + Eps) &&  0 <= xx){
+		if(zzabs <= z0){
+  			qfunc = (r1 - rr) / (r1 - r0);        //②
+  			Search_AreaFlag[i][n] =2;
+		}
+  		else if((z0 - Eps < zzabs) && (zzabs <= z0 + (rr-r0)/(r1-r0) * z2 )){
+  			qfunc = (r1 - rr) / (r1 - r0);        //④
+  			Search_AreaFlag[i][n] =4;
+  		}
+  		else if((z0 + (rr-r0)/(r1-r0) * z2 - Eps) < zzabs && zzabs <= (z0 + z1 + (rr-r0)/(r1-r0) * z2 ) ){
+  			qfunc = ((r1 - rr) / (r1 - r0)) * (z1 -(zzabs - z0 - (rr-r0)/(r1-r0)*z2))/z1;        //⑤
+  			Search_AreaFlag[i][n] =5;
+  		}
+	}
+	//初期き裂moving領域
+
+  	else if( (r0 < rr2) && (rr2 <= r1 + Eps) && xx2 <= 0 ){
+		if(zzabs2 <= z0){
+  			qfunc = (r1 - rr2) / (r1 - r0);        //②
+  			Search_AreaFlag[i][n] =2;
+  		}
+  		else if((z0 - Eps < zzabs2) && (zzabs2 <= z0 + (rr2-r0)/(r1-r0) * z2 )){
+  			qfunc = (r1 - rr2) / (r1 - r0);        //④
+  			Search_AreaFlag[i][n] =4;
+  		}
+  		else if((z0 + (rr2-r0)/(r1-r0) * z2 - Eps) < zzabs2 && zzabs2 <= (z0 + z1 + (rr2-r0)/(r1-r0) * z2 ) ){
+  			qfunc = ((r1 - rr2) / (r1 - r0)) * (z1 -(zzabs2 - z0 - (rr2-r0)/(r1-r0)*z2))/z1;        //⑤
+  			Search_AreaFlag[i][n] =5;
+  		}
+	}
+	
+
+
+	//elongating領域
+
+	//xx方向に関して初期亀裂と現在亀裂の間にある場合
+
+  	//Disp0がr0より大きくr1より小さい時
+	else if(xx <= 0 && 0 <= xx2 && (r0 < Disp0) && (Disp0 <= r1 + Eps) ){
+		if( zzabs2 <= z0){
+			qfunc = (r1 - Disp0) / (r1 - r0);        //②
+			Search_AreaFlag[i][n] =2;
+		}
+		else if((z0 - Eps < zzabs2) && (zzabs2 <= z0 + (rr2-r0)/(r1-r0) * z2)){
+  			qfunc = (r1 - Disp0) / (r1 - r0);        //④
+  			Search_AreaFlag[i][n] =4;
+  		}
+  		else if((z0 + (rr2-r0)/(r1-r0) * z2 - Eps) < zzabs2 && zzabs2 <= (z0 + z1 + (rr2-r0)/(r1-r0) * z2 )  ){
+  			qfunc = ((r1 - Disp0) / (r1 - r0)) * (z1 -(zzabs - z0 - (Disp0-r0)/(r1-r0)*z2))/z1;        //⑤
+  			Search_AreaFlag[i][n] =5;
+  		}
+	}
+  return(qfunc);
+}
+
+double ConvLocalCoords(double localCoord[3], double x, double y, double z)
+{
+  	return(localCoord[0]*x+localCoord[1]*y+localCoord[2]*z);
+}
+
+//検索する要素番号の要素を構成する節点のq値がすべて0の時0を返す。Vepのフラグが全節点で立ったら2を返す。それ以外でq値が0以上の値をもつ点があった場合は1を返す。
+int PerformIntegralonElement_tetra(int elementId, int nodes_count, int nn){
+  	int ii,icount=0,CountVepFlag=0,Count_OutVepFlag=0;
+  	double Eps=0.00000001;
+  	int temp2layer=0;
+  	for(ii=0;ii<nodes_count;ii++){
+    		if(fabs(q2[ElementNodeId_s[elementId][ii]][nn]) < Eps) icount++;
+    		else if(Flag_Vep_Nodes[ElementNodeId_s[elementId][ii]][nn]==2) CountVepFlag++;
+    		if(Flag_Vep_Nodes[ElementNodeId_s[elementId][ii]][nn]==3) Count_OutVepFlag++;
+    		//if(Crack_Front_Flag[ElementNodeId_s[elementId][ii]]==1 || Crack_Front_Flag[ElementNodeId_s[elementId][ii]]==2 || Crack_Front_Flag[ElementNodeId_s[elementId][ii]]==3){
+    		//		temp2layer++;
+    		//}
+    	}
+    	//if(temp2layer==10)printf("Ele %d CountVep %d |Outer %d %d ",elementId,CountVepFlag,icount,Count_OutVepFlag);
+    	//if(Count_OutVepFlag>0)printf("oooooooooooooouaaaaaaaaaaaaaaaaaaaaaaaa\n");
+  	if(icount == nodes_count){
+  		//if(temp2layer==10)printf("return 0000000000000000\n");
+  		return(0);  	//q値が0の節点しかない要素は積分領域の要素じゃない	
+  	}
+  	else{
+		if(CountVepFlag == nodes_count){//Vεのフラグが全要素でたった→Vε内部の要素
+   		 	//printf("Return 2\n");
+			return(2);
+		}
+		else if(CountVepFlag >0){
+			if((Count_OutVepFlag + CountVepFlag)==nodes_count){
+				//printf("Return 2\n");
+				return(2);
+			}
+			else{
+				//if(temp2layer==10)printf("Return 1!\n");
+				return(1);
+			} 
+		}
+		else {
+			if(Count_OutVepFlag==nodes_count) return(0);
+			else return(1); //その他で１つでもq値をもってる領域は積分領域
+		}	
+	} 	
+}
+/*探索する要素のコネクティビティに含まれる節点のq値がすべて0の時0を返す→積分領域外
+  Vepのフラグがすべて立った時→2を返す
+  Vepのフラグが１面すべてに立ち（H8の時は4つ）残りが3or0の時→２を返す
+  それ以外→１を返す*/
+int PerformIntegralonElement_Hexa(int elementId, int nodes_count ,int nn){
+  	int ii,icount=0,CountVepFlag=0,Count_OutFlag=0;
+  	double Eps=0.00000001;
+  	for(ii=0;ii<nodes_count;ii++){
+    		if(fabs(q2[ElementNodeId_s[elementId][ii]][nn]) < Eps) icount++;
+    		else if(Flag_Vep_Nodes[ElementNodeId_s[elementId][ii]][nn]==2) CountVepFlag++;
+    		if(Flag_Vep_Nodes[ElementNodeId_s[elementId][ii]][nn]==0 || Flag_Vep_Nodes[ElementNodeId_s[elementId][ii]][nn]==3) Count_OutFlag++;
+    	}
+  	if(icount == nodes_count) return(0);  	//全て領域V外節点のとき
+  	else{	//1つ以上領域V内節点のとき
+		if(CountVepFlag == nodes_count){	//全て領域Vε内節点のとき
+			//printf("Ele %d CountVep %d |Outer %d %d |Integ %d\n",elementId,CountVepFlag,icount,Count_OutFlag,Integcount );
+			return(2);
+		}
+		else if(CountVepFlag == N_Face_Nodes){	//一表面が領域Vε節点のとき
+			if(Count_OutFlag == N_Face_Nodes){	//一表面が外表面のとき
+				return(2);
+			}
+			else return(1); 
+		}
+		else return(1); //その他の領域V内節点
+	} 	
+}
+//最初の方でデータ読み込み時につけたフラグを使って前縁からflag_num番目の要素の検出を行う。違う要素なら0を返す、その要素なら1を返す。
+int NotPerformonCrackFront(int elementId, int nodes_count, int flag_num)
+{
+  	int ii,icount=0;
+
+  	for(ii=0;ii<nodes_count;ii++)
+    		if(Crack_Front_Flag[ ElementNodeId_s[elementId][ii]]== flag_num) icount++;
+  	if(icount != 0){
+    		return(1);
+  	}
+  	return(0);
+}
+
+
+/***********************************************************************
+			 四面体二次要素用計算パート、4点積分
+***********************************************************************/
+//ひずみエネルギ密度の勾配の計算。W → δW/δX1, δW/δX2, δW/δX3
+void Make_W_grad_2_Tetra_10(){	
+	static double JW_on_ElementNodeId_s[NO_NODES_ON_ELEMENT_T10];
+	static double B_1[DIMENSION][KIEL_SIZE_T10], B_2[DIMENSION][KIEL_SIZE_T10], B_3[DIMENSION][KIEL_SIZE_T10];
+	static double X[NO_NODES_ON_ELEMENT_T10][DIMENSION],J;
+	double Gxi[4][3]={{0.13819660112501051518,0.58541019662496845446,0.13819660112501051518},
+					 {0.13819660112501051518,0.13819660112501051518,0.13819660112501051518},
+					 {0.13819660112501051518,0.13819660112501051518,0.58541019662496845446},
+					 {0.58541019662496845446,0.13819660112501051518,0.13819660112501051518}};
+	int N,e,i,j;
+
+	for( e = 0; e < NElements; e++ ){
+		for( N = 0; N < N_IntegrationPoint; N++){
+			W_grad_1[e][N] = 0.0;
+			W_grad_2[e][N] = 0.0;	 //初期化
+			W_grad_3[e][N] = 0.0;
+		 }
+		for( i = 0; i < NO_NODES_ON_ELEMENT_T10; i++ ){
+			for( j = 0; j < DIMENSION; j++ ){
+				JW_on_ElementNodeId_s[i] = JW_on_Node[ ElementNodeId_s[e][i] ][0];
+				if(DispMode==0) X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j];
+				else if(DispMode==1) X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j] + Displacement[ ElementNodeId_s[e][i]][j]; //現在配置
+				else{printf("ERROR!! DispMode is not 0 or 1\n"); exit(1);}
+			}
+		}
+		//x1,x2,x3方向の勾配   ※成分が入ってるB_1[0][i*3],B_2[0][i*3]..を掛ければOK
+		for( N = 0; N < N_IntegrationPoint; N++ ){
+		  	Make_Gradient_Matrix_Tetra_10(B_1, B_2, B_3, Gxi[N], X ,&J );
+			for( i = 0; i < NO_NODES_ON_ELEMENT_T10; i++ ){
+				  W_grad_1[e][N] += B_1[0][i*3] * JW_on_ElementNodeId_s[i];
+				  W_grad_2[e][N] += B_2[0][i*3] * JW_on_ElementNodeId_s[i];
+				  W_grad_3[e][N] += B_3[0][i*3] * JW_on_ElementNodeId_s[i];
+			}
+		}
+	}
+}
+//第一ピオラキルヒホッフ応力の勾配の計算。Pij → δPij/δXi
+void Make_Pai_grad_2_Tetra_10(){	
+  	static double Pai_on_ElementNodeId_s[NO_NODES_ON_ELEMENT_T10][DIMENSION][DIMENSION];
+  	static double B_q[DIMENSION][KIEL_SIZE_T10];
+  	static double X[NO_NODES_ON_ELEMENT_T10][DIMENSION],J;
+	double Gxi[4][3]={{0.13819660112501051518,0.58541019662496845446,0.13819660112501051518},
+					 {0.13819660112501051518,0.13819660112501051518,0.13819660112501051518},
+					 {0.13819660112501051518,0.13819660112501051518,0.58541019662496845446},
+					 {0.58541019662496845446,0.13819660112501051518,0.13819660112501051518}};
+  	int N,e,i,j,k;
+
+  	for( e = 0; e < NElements; e++ ){
+    		for( N = 0; N < N_IntegrationPoint; N++){
+      		for( i = 0; i < DIMENSION; i ++ ){
+				for( j = 0; j < DIMENSION; j++ ){
+	  				gradients_Pai[e][N][i][j] = 0.0; //初期化
+				}
+      		}
+      	}
+
+    		for( i = 0; i < NO_NODES_ON_ELEMENT_T10; i++ ){
+      		for( j = 0; j < DIMENSION; j++ ){
+				for( k = 0; k < DIMENSION; k++ ){
+	  				Pai_on_ElementNodeId_s[i][j][k] = Pai_on_Node[ ElementNodeId_s[e][i] ][j][k];
+				}
+				if(DispMode==0) X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j];
+				else if(DispMode==1) X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j] + Displacement[ ElementNodeId_s[e][i]][j]; //現在配置
+				else{printf("ERROR!! DispMode is not 0 or 1\n"); exit(1);}
+      		}
+    		}
+
+    		//Xi方向の勾配
+    		for( N = 0; N < N_IntegrationPoint; N++ ){
+      		Make_B_q_Matrix_Tetra_10(B_q, Gxi[N], X ,&J );
+      		for( i = 0; i < DIMENSION; i++ ){
+				for( j = 0; j < DIMENSION; j++ ){
+	  				for( k = 0; k < NO_NODES_ON_ELEMENT_T10; k++ ){
+	    					gradients_Pai[e][N][i][j] += B_q[i][k*3+i]*Pai_on_ElementNodeId_s[k][i][j];
+	  				}
+				}
+      		}
+    		}
+  	}
+}
+//変形勾配の勾配の計算。δuj/δX1 → δ2uj/(δXi*δX1)
+void Make_disp_2grad_Tetra_10(){
+	static double Disp_grad_1_on_ElementNodeId_s[NO_NODES_ON_ELEMENT_T10][DIMENSION];
+	static double Disp_grad_2_on_ElementNodeId_s[NO_NODES_ON_ELEMENT_T10][DIMENSION];
+	static double Disp_grad_3_on_ElementNodeId_s[NO_NODES_ON_ELEMENT_T10][DIMENSION];
+	static double B_q[DIMENSION][KIEL_SIZE_T10];
+	static double X[NO_NODES_ON_ELEMENT_T10][DIMENSION],J;
+	double Gxi[4][3]={{0.13819660112501051518,0.58541019662496845446,0.13819660112501051518},
+					 {0.13819660112501051518,0.13819660112501051518,0.13819660112501051518},
+					 {0.13819660112501051518,0.13819660112501051518,0.58541019662496845446},
+					 {0.58541019662496845446,0.13819660112501051518,0.13819660112501051518}};
+	int N,e,i,j,k;
+	
+	for( e = 0; e < NElements; e++ ){
+		for( N = 0; N < N_IntegrationPoint; N++){
+			for( i = 0; i < DIMENSION; i ++ ){
+				for( j = 0; j < DIMENSION; j++ ){
+					Disp_2grad_1[e][N][i][j] = 0.0;
+					Disp_2grad_2[e][N][i][j] = 0.0; //初期化
+					Disp_2grad_3[e][N][i][j] = 0.0;
+				}
+			}
+		}
+
+		for( i = 0; i < NO_NODES_ON_ELEMENT_T10; i++ ){
+			for( j = 0; j < DIMENSION; j++ ){
+				Disp_grad_1_on_ElementNodeId_s[i][j] = Disp_grad_1_on_Node[ ElementNodeId_s[e][i] ][j];
+				Disp_grad_2_on_ElementNodeId_s[i][j] = Disp_grad_2_on_Node[ ElementNodeId_s[e][i] ][j];
+				Disp_grad_3_on_ElementNodeId_s[i][j] = Disp_grad_3_on_Node[ ElementNodeId_s[e][i] ][j];
+				if(DispMode==0) X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j];
+				else if(DispMode==1) X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j] + Displacement[ ElementNodeId_s[e][i]][j]; //現在配置
+				else{printf("ERROR!! DispMode is not 0 or 1\n"); exit(1);}
+			}
+		}
+
+		//Xi方向の勾配
+		for( N = 0; N < N_IntegrationPoint; N++ ){
+		  	Make_B_q_Matrix_Tetra_10(B_q, Gxi[N], X ,&J );
+			for( i = 0; i < DIMENSION; i++ ){
+				for( j = 0; j < DIMENSION; j++ ){
+					for( k = 0; k < NO_NODES_ON_ELEMENT_T10; k++ ){
+						Disp_2grad_1[e][N][i][j] += B_q[i][k*3+i]*Disp_grad_1_on_ElementNodeId_s[k][j];
+						Disp_2grad_2[e][N][i][j] += B_q[i][k*3+i]*Disp_grad_2_on_ElementNodeId_s[k][j];
+						Disp_2grad_3[e][N][i][j] += B_q[i][k*3+i]*Disp_grad_3_on_ElementNodeId_s[k][j];
+					}
+				}
+			}
+		}
+	}
+}
+//変位の勾配の計算。δuj/δX1(node) → δuj/δX1(gauss) same method ??節点に格納した変位勾配を形状関数でガウス点に戻している？
+int Make_Disp_grad_2_Tetra_10_same_method(){
+  	int e, N, i, k;
+	double Gxi[4][3]={{0.13819660112501051518,0.58541019662496845446,0.13819660112501051518},
+					 {0.13819660112501051518,0.13819660112501051518,0.13819660112501051518},
+					 {0.13819660112501051518,0.13819660112501051518,0.58541019662496845446},
+					 {0.58541019662496845446,0.13819660112501051518,0.13819660112501051518}};
+
+  	for( e = 0; e < NElements; e++ ){
+    		for( N = 0; N < N_IntegrationPoint; N++ ){
+      		for( i = 0; i < DIMENSION; i++ ){
+        			Disp_grad_1_use_same_method[e][N][i]=0.0;
+        			Disp_grad_2_use_same_method[e][N][i]=0.0; //初期化
+        			Disp_grad_3_use_same_method[e][N][i]=0.0;
+          		for( k = 0; k < NO_NODES_ON_ELEMENT_T10; k++ ){
+            		Disp_grad_1_use_same_method[e][N][i]+=N_Tetra_10(k, Gxi[N])*Disp_grad_1_on_Node[ElementNodeId_s[e][k]][i];
+     	       		Disp_grad_2_use_same_method[e][N][i]+=N_Tetra_10(k, Gxi[N])*Disp_grad_2_on_Node[ElementNodeId_s[e][k]][i];
+            		Disp_grad_3_use_same_method[e][N][i]+=N_Tetra_10(k, Gxi[N])*Disp_grad_3_on_Node[ElementNodeId_s[e][k]][i];
+           		}
+      		}
+    		}
+  	}
+}
+//第一ピオラキルヒホッフ応力の計算。Pij(node) → Pij(gauss) same method  ??節点に格納した変位勾配を形状関数でガウス点に戻している？
+int Make_Pai_Tetra_10_same_method(){
+  	int e, N, i, j, k; 
+	double Gxi[4][3]={{0.13819660112501051518,0.58541019662496845446,0.13819660112501051518},
+					 {0.13819660112501051518,0.13819660112501051518,0.13819660112501051518},
+					 {0.13819660112501051518,0.13819660112501051518,0.58541019662496845446},
+					 {0.58541019662496845446,0.13819660112501051518,0.13819660112501051518}};
+
+  	for( e = 0; e < NElements; e++ ){
+    		for( N = 0; N < N_IntegrationPoint; N++ ){
+      		for( i = 0; i < DIMENSION; i++ ){
+        			for( j = 0; j < DIMENSION; j++ ){
+          			Pai_use_same_method[e][N][i][j]=0.0; //初期化
+            			for( k = 0; k < NO_NODES_ON_ELEMENT_T10; k++ ){
+              			Pai_use_same_method[e][N][i][j]+=N_Tetra_10(k, Gxi[N])*Pai_on_Node[ElementNodeId_s[e][k]][i][j];
+             			}
+        			}
+      		}
+    		}
+  	}
+}
+//応力と変形勾配の掛け算の勾配の計算。σij*(δuj/δX1) → δ/δXi*(σij*(δuj/δX1))
+void Make_grad_W_Tetra_10(){	
+	static double W_1_on_ElementNodeId_s[NO_NODES_ON_ELEMENT_T10][DIMENSION];
+	static double W_2_on_ElementNodeId_s[NO_NODES_ON_ELEMENT_T10][DIMENSION];
+	static double W_3_on_ElementNodeId_s[NO_NODES_ON_ELEMENT_T10][DIMENSION];
+	static double B_q[DIMENSION][KIEL_SIZE_T10];
+	static double X[NO_NODES_ON_ELEMENT_T10][DIMENSION],J;
+	double Gxi[4][3]={{0.13819660112501051518,0.58541019662496845446,0.13819660112501051518},
+					 {0.13819660112501051518,0.13819660112501051518,0.13819660112501051518},
+					 {0.13819660112501051518,0.13819660112501051518,0.58541019662496845446},
+					 {0.58541019662496845446,0.13819660112501051518,0.13819660112501051518}};
+	int N,e,i,j,k;
+
+	for( e = 0; e < NElements; e++ ){
+		for( N = 0; N < N_IntegrationPoint; N++ ){
+			for( i = 0; i < DIMENSION; i++ ){
+				grad_W_1[e][N][i]=0.0;
+				grad_W_2[e][N][i]=0.0; //初期化
+				grad_W_3[e][N][i]=0.0;
+			}
+		}
+		for( i = 0; i < NO_NODES_ON_ELEMENT_T10; i++ ){
+			for( j = 0; j < DIMENSION; j++ ){
+				W_1_on_ElementNodeId_s[i][j] = W_1_on_Node[ ElementNodeId_s[e][i] ][j];
+				W_2_on_ElementNodeId_s[i][j] = W_2_on_Node[ ElementNodeId_s[e][i] ][j];
+				W_3_on_ElementNodeId_s[i][j] = W_3_on_Node[ ElementNodeId_s[e][i] ][j];
+				if(DispMode==0) X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j];
+				else if(DispMode==1) X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j] + Displacement[ ElementNodeId_s[e][i]][j]; //現在配置
+				else{printf("ERROR!! DispMode is not 0 or 1\n"); exit(1);}
+			}
+		}
+		for( N = 0; N < N_IntegrationPoint; N++ ){
+		  	Make_B_q_Matrix_Tetra_10(B_q, Gxi[N], X ,&J );
+			for( i = 0; i < DIMENSION; i++ ){
+				for( k = 0; k < NO_NODES_ON_ELEMENT_T10; k++ ){
+					grad_W_1[e][N][i] += B_q[i][k*3+i]*W_1_on_ElementNodeId_s[k][i];
+					grad_W_2[e][N][i] += B_q[i][k*3+i]*W_2_on_ElementNodeId_s[k][i];
+					grad_W_3[e][N][i] += B_q[i][k*3+i]*W_3_on_ElementNodeId_s[k][i];
+				}
+			}
+		}
+	}
+}
+//q2の勾配を求める関数
+void Make_gradients_q2_Tetra_10(int cfn, int nn, double RR, double temp_z1, double temp_z2,int cfn2){
+  	static double B_q[DIMENSION][KIEL_SIZE_T10],X[NO_NODES_ON_ELEMENT_T10][DIMENSION],J;
+  	static double B_1[DIMENSION][KIEL_SIZE_T10], B_2[DIMENSION][KIEL_SIZE_T10], B_3[DIMENSION][KIEL_SIZE_T10];
+  	double Gxi[4][3]={{0.13819660112501051518,0.58541019662496845446,0.13819660112501051518},
+					 {0.13819660112501051518,0.13819660112501051518,0.13819660112501051518},
+					 {0.13819660112501051518,0.13819660112501051518,0.58541019662496845446},
+					 {0.58541019662496845446,0.13819660112501051518,0.13819660112501051518}};
+  	int i, j, e, N;
+  	double r0;
+  	double Vep_Rem = av_d * REMEVE_LAYER_ELEMENTS+0.0001;
+  	double r1 = av_d*RR;
+  	static double q2_d[KIEL_SIZE_T10], q2_dd[NO_NODES_ON_ELEMENT_T10];
+
+  	if(Vep_Rem > V_ep_radius){
+  		r0 = Vep_Rem;
+  		printf("Layer Element Remove Mode |");
+  	}
+  	else{
+  		r0 = V_ep_radius;
+  		printf("Vep Radius Mode |");
+  	}
+  	printf("r0 = %lf ave_CrackMeshLength = %lf \n",r0,av_d);
+  	//q1の値を設定
+  	for(i=0; i < NNodes; i++){
+  		q2[i][nn] = 0.0; //Zero Clear
+  		Flag_Vep_Nodes[i][nn]=0;
+  	}
+  	for( i = 0; i < NNodes; i++ )
+  	{
+    		double x, y, z, xc, yc, zc, xc2, yc2, zc2;
+    		double xx, yy, zz, xxc, yyc, zzc, xxc2, yyc2, zzc2;
+    		double z0, z2, z1;
+			double R,Rc;
+			double theta,xr,xa,ya;
+			double R2,Rc2;
+			double theta2,xr2,xa2,ya2;
+    		double localCoord0[3], localCoord1[3], localCoord2[3];
+    		int  kk;
+    		z0 =  0.0;
+    		z1= av_d*temp_z1;
+    		z2= av_d*temp_z2;
+    		Search_AreaFlag[i][nn]=0;
+
+    		for(kk=0; kk<3; kk++){
+      		localCoord0[kk] =  crack_node_vec[nn][0][kk];  //進展方向ベクトル
+      		localCoord1[kk] =  crack_node_vec[nn][1][kk]; 	//法線方向ベクトルの3成分作成
+      		localCoord2[kk] =  crack_node_vec[nn][2][kk];  //接線方向ベクトル
+    		}
+    		//	  dA = 2 * z0 + z1;	//仮想き裂進展面積の増加分
+    		//	  printf("dA (given inMake_gradients_q2)  is %15.7e\n",dA);
+    		//dA = 0.0;
+
+    		x = Node_Coordinate[i][0];
+    		y = Node_Coordinate[i][1];  //サーチする点の節点座標
+    		z = Node_Coordinate[i][2];
+
+    		xc= Node_Coordinate[cfn][0];
+    		yc = Node_Coordinate[cfn][1]; //基準にするき裂前縁の節点の座標
+    		zc = Node_Coordinate[cfn][2];
+
+    		xc2 = Node_Coordinate[cfn2][0];
+    		yc2 = Node_Coordinate[cfn2][1]; //基準にする初期き裂前縁の節点の座標
+    		zc2 = Node_Coordinate[cfn2][2];
+
+    		//Converting to local coords  局所座標系に座標変換
+    		xx = ConvLocalCoords(localCoord0, x, y, z);
+    		yy = ConvLocalCoords(localCoord1, x, y, z);
+    		zz = ConvLocalCoords(localCoord2, x, y, z);
+    		xxc = ConvLocalCoords(localCoord0, xc, yc, zc);
+    		yyc = ConvLocalCoords(localCoord1, xc, yc, zc);
+    		zzc = ConvLocalCoords(localCoord2, xc, yc, zc);
+			xxc2 = ConvLocalCoords(localCoord0, xc2, yc2, zc2);
+    		yyc2 = ConvLocalCoords(localCoord1, xc2, yc2, zc2); //基準にする初期き裂前縁の節点
+    		zzc2 = ConvLocalCoords(localCoord2, xc2, yc2, zc2);			
+
+    		q2[i][nn] = 0.0;
+    		q2[i][nn]  = ComputeValueQFunc(xx,  yy,  zz, z0,  z2, z1,xxc, yyc, zzc, r0, r1, xxc2, yyc2, zzc2, i,nn,R, Rc, xr,Rc2, xr2,theta,theta2);    //すべての節点に対してq値が入る。
+
+    	//	if(Search_AreaFlag==7)printf("7777777777777______");
+    		if(q2[i][nn] >0){
+    			if(Search_AreaFlag[i][nn]==1 || Search_AreaFlag[i][nn]==3){
+    				Flag_Vep_Nodes[i][nn]=2;
+    			}
+    			else if(Search_AreaFlag[i][nn]==2 || Search_AreaFlag[i][nn]==4 || Search_AreaFlag[i][nn]==5){
+    				Flag_Vep_Nodes[i][nn]=1;
+    			}
+
+    			if(Crack_Front_Flag[i]==1 || Crack_Front_Flag[i]==2 || Crack_Front_Flag[i]==3){
+    				Flag_Vep_Nodes[i][nn]=2;
+    			}
+    			//モデル表面でqを０にする			
+    			if( Surface_flag[i] == 1 ){
+				q2[i][nn] = 0.0;
+				if(Search_AreaFlag[i][nn]==7){
+    					Flag_Vep_Nodes[i][nn]=3;
+    				}
+    				else if(Crack_Front_Flag[i]==1 || Crack_Front_Flag[i]==2 || Crack_Front_Flag[i]==3){
+    					Flag_Vep_Nodes[i][nn]=3;
+    				}
+    				else{
+    					Flag_Vep_Nodes[i][nn]=0;   //外側Flag
+    				}
+      		}
+    		}
+    		else{
+    			Flag_Vep_Nodes[i][nn]=0;   //外側Flag
+    			if(Search_AreaFlag[i][nn]==7){
+    				Flag_Vep_Nodes[i][nn]=3;
+    			}
+    			if(Crack_Front_Flag[i]==1 || Crack_Front_Flag[i]==2 || Crack_Front_Flag[i]==3){
+    				Flag_Vep_Nodes[i][nn]=3;
+    			}
+    		}
+
+
+  	}
+
+  	for( e = 0; e < NElements; e++ ){
+    		for( N = 0; N < N_IntegrationPoint; N++){
+      		for( i = 0; i < DIMENSION; i ++ ){
+				gradients_q2[e][N][i] = 0.0;
+      		}
+      	}
+
+    		//B_qマトリックスと各要素のq2_dを取得（形状関数順に再配列）
+    		for( i = 0; i < NO_NODES_ON_ELEMENT_T10; i++ ){
+			//SPRを二次基底を用いて行った際にJWがnanになっている節点を含む要素を構成する節点のqを0にする//
+			if(isnan(JW_on_Node[ElementNodeId_s[e][i]][0]) != 0){
+	    			for( i = 0; i < NO_NODES_ON_ELEMENT_T10; i++ ){
+					q2[ElementNodeId_s[e][i]][nn] = 0.0;
+					q2_dd[i] = q2[ ElementNodeId_s[e][i] ][nn];
+				}
+			}
+
+      		q2_dd[i] = q2[ ElementNodeId_s[e][i] ][nn];
+      		for( j = 0; j < DIMENSION; j++ ){
+				//     q2_d[ i*DIMENSION +j ] = q2[ ElementNodeId_s[e][i] ];
+				if(DispMode==0) X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j];
+				else if(DispMode==1) X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j] + Displacement[ ElementNodeId_s[e][i]][j]; //現在配置
+				else{printf("ERROR!! DispMode is not 0 or 1\n"); exit(1);}
+      		}
+    		}
+
+    		/////中間節点を平均に
+    		q2_dd[4]  = 0.5*(q2_dd[0] + q2_dd[1]);
+    		q2_dd[5]  = 0.5*(q2_dd[0] + q2_dd[2]);
+    		q2_dd[6]  = 0.5*(q2_dd[0] + q2_dd[3]);
+    		q2_dd[7]  = 0.5*(q2_dd[1] + q2_dd[2]);
+    		q2_dd[8]  = 0.5*(q2_dd[2] + q2_dd[3]);
+    		q2_dd[9]  = 0.5*(q2_dd[3] + q2_dd[1]);
+
+    		for( i = 0; i < NO_NODES_ON_ELEMENT_T10; i++ ){
+      		for( j = 0; j < DIMENSION; j++ ){
+				q2_d[i*DIMENSION +j] = q2_dd[i];
+      		}
+      	}
+    		q2[ ElementNodeId_s[e][4] ][nn] = q2_dd[4];
+    		q2[ ElementNodeId_s[e][5] ][nn] = q2_dd[5];
+    		q2[ ElementNodeId_s[e][6] ][nn] = q2_dd[6];
+    		q2[ ElementNodeId_s[e][7] ][nn] = q2_dd[7];
+    		q2[ ElementNodeId_s[e][8] ][nn] = q2_dd[8];
+    		q2[ ElementNodeId_s[e][9] ][nn] = q2_dd[9];
+
+    		//q2の勾配を求める
+    		for( N = 0; N < N_IntegrationPoint; N++ ){
+      		Make_B_q_Matrix_Tetra_10( B_q, Gxi[N], X ,&J );
+      		Make_Gradient_Matrix_Tetra_10(B_1, B_2, B_3, Gxi[N], X ,&J );
+      		for( i = 0; i < DIMENSION; i++ ){
+				for( j = 0; j < KIEL_SIZE_T10; j++ ){
+	  				gradients_q2[e][N][i] += B_q[i][j] * q2_d[j];
+				}
+			}
+   	 	}
+
+   	 	//ガウス点のqの値を形状関数を使って求める。
+    		for( N = 0; N < N_IntegrationPoint; N++ ){
+      		q2_gp[e][N]=0.0;
+      		for( i = 0; i < NO_NODES_ON_ELEMENT_T10; i++ ){
+				q2_gp[e][N]+=N_Tetra_10(i, Gxi[N])*q2[ElementNodeId_s[e][i]][nn];
+      		}
+    		}
+  	}
+}
+
+/***********************************************************************
+			 		四面体一次用計算パート
+***********************************************************************/
+//ひずみエネルギ密度の勾配の計算。W → δW/δX1, δW/δX2, δW/δX3
+void Make_W_grad_2_Tetra_4(){	
+	static double JW_on_ElementNodeId_s[NO_NODES_ON_ELEMENT_T4];
+	static double B_1[DIMENSION][KIEL_SIZE_T4], B_2[DIMENSION][KIEL_SIZE_T4], B_3[DIMENSION][KIEL_SIZE_T4];
+	static double X[NO_NODES_ON_ELEMENT_T4][DIMENSION],J;
+	double Gxi[1][3]={0.25,0.25,0.25};
+	int N,e,i,j;
+
+	for( e = 0; e < NElements; e++ ){
+		for( N = 0; N < N_IntegrationPoint; N++){
+			W_grad_1[e][N] = 0.0;
+			W_grad_2[e][N] = 0.0;	//初期化
+			W_grad_3[e][N] = 0.0;
+		 }
+		for( i = 0; i < NO_NODES_ON_ELEMENT_T4; i++ ){
+			for( j = 0; j < DIMENSION; j++ ){
+				if(DispMode==0) X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j];
+				else if(DispMode==1) X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j] + Displacement[ ElementNodeId_s[e][i]][j]; //現在配置
+				else{printf("ERROR!! DispMode is not 0 or 1\n"); exit(1);}
+			}
+		}
+		//x1,x2,x3方向の勾配
+		for( N = 0; N < N_IntegrationPoint; N++ ){
+		  	Make_Gradient_Matrix_Tetra_4(B_1, B_2, B_3, Gxi[N], X ,&J );
+			for( i = 0; i < NO_NODES_ON_ELEMENT_T4; i++ ){
+				  W_grad_1[e][N] += B_1[0][i*3] * JW_on_ElementNodeId_s[i];
+				  W_grad_2[e][N] += B_2[0][i*3] * JW_on_ElementNodeId_s[i];
+				  W_grad_3[e][N] += B_3[0][i*3] * JW_on_ElementNodeId_s[i];
+			}
+		}
+	}
+}
+//第一ピオラキルヒホッフ応力の勾配の計算。Pij → δPij/δXi
+void Make_Pai_grad_2_Tetra_4(){	
+  	static double Pai_on_ElementNodeId_s[NO_NODES_ON_ELEMENT_T4][DIMENSION][DIMENSION];
+  	static double B_q[DIMENSION][KIEL_SIZE_T4];
+  	static double X[NO_NODES_ON_ELEMENT_T4][DIMENSION],J;
+	double Gxi[1][3]={0.25,0.25,0.25};
+  	int N,e,i,j,k;
+
+  	for( e = 0; e < NElements; e++ ){
+    		for( N = 0; N < N_IntegrationPoint; N++){
+      		for( i = 0; i < DIMENSION; i ++ ){
+				for( j = 0; j < DIMENSION; j++ ){
+	  				gradients_Pai[e][N][i][j] = 0.0; //初期化
+				}
+      		}
+      	}
+
+    		for( i = 0; i < NO_NODES_ON_ELEMENT_T4; i++ ){
+      		for( j = 0; j < DIMENSION; j++ ){
+				for( k = 0; k < DIMENSION; k++ ){
+	  				Pai_on_ElementNodeId_s[i][j][k] = Pai_on_Node[ ElementNodeId_s[e][i] ][j][k];
+				}
+				if(DispMode==0) X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j];
+				else if(DispMode==1) X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j] + Displacement[ ElementNodeId_s[e][i]][j]; //現在配置
+				else{printf("ERROR!! DispMode is not 0 or 1\n"); exit(1);}
+      		}
+    		}
+
+    		//Xi方向の勾配
+    		for( N = 0; N < N_IntegrationPoint; N++ ){
+      		Make_B_q_Matrix_Tetra_4(B_q, Gxi[N], X ,&J );
+      		for( i = 0; i < DIMENSION; i++ ){
+				for( j = 0; j < DIMENSION; j++ ){
+	  				for( k = 0; k < NO_NODES_ON_ELEMENT_T4; k++ ){
+	    					gradients_Pai[e][N][i][j] += B_q[i][k*3+i]*Pai_on_ElementNodeId_s[k][i][j];
+	  				}
+				}
+      		}
+    		}
+  	}
+}
+//変形勾配の勾配の計算。δuj/δX1 → δ2uj/(δXi*δX1)
+void Make_disp_2grad_Tetra_4(){
+	static double Disp_grad_1_on_ElementNodeId_s[NO_NODES_ON_ELEMENT_T4][DIMENSION];
+	static double Disp_grad_2_on_ElementNodeId_s[NO_NODES_ON_ELEMENT_T4][DIMENSION];
+	static double Disp_grad_3_on_ElementNodeId_s[NO_NODES_ON_ELEMENT_T4][DIMENSION];
+	static double B_q[DIMENSION][KIEL_SIZE_T4];
+	static double X[NO_NODES_ON_ELEMENT_T4][DIMENSION],J;
+	double Gxi[1][3]={0.25,0.25,0.25};
+	int N,e,i,j,k;
+	
+	for( e = 0; e < NElements; e++ ){
+		for( N = 0; N < N_IntegrationPoint; N++){
+			for( i = 0; i < DIMENSION; i ++ ){
+				for( j = 0; j < DIMENSION; j++ ){
+					Disp_2grad_1[e][N][i][j] = 0.0;
+					Disp_2grad_2[e][N][i][j] = 0.0; //初期化
+					Disp_2grad_3[e][N][i][j] = 0.0;
+				}
+			}
+		}
+
+		for( i = 0; i < NO_NODES_ON_ELEMENT_T4; i++ ){
+			for( j = 0; j < DIMENSION; j++ ){
+				Disp_grad_1_on_ElementNodeId_s[i][j] = Disp_grad_1_on_Node[ ElementNodeId_s[e][i] ][j];
+				Disp_grad_2_on_ElementNodeId_s[i][j] = Disp_grad_2_on_Node[ ElementNodeId_s[e][i] ][j];
+				Disp_grad_3_on_ElementNodeId_s[i][j] = Disp_grad_3_on_Node[ ElementNodeId_s[e][i] ][j];
+				if(DispMode==0) X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j];
+				else if(DispMode==1) X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j] + Displacement[ ElementNodeId_s[e][i]][j]; //現在配置
+				else{printf("ERROR!! DispMode is not 0 or 1\n"); exit(1);}
+			}
+		}
+		
+		//Xi方向の勾配
+		for( N = 0; N < N_IntegrationPoint; N++ ){
+		  	Make_B_q_Matrix_Tetra_4(B_q, Gxi[N], X ,&J );
+			for( i = 0; i < DIMENSION; i++ ){
+				for( j = 0; j < DIMENSION; j++ ){
+					for( k = 0; k < NO_NODES_ON_ELEMENT_T4; k++ ){
+						Disp_2grad_1[e][N][i][j] += B_q[i][k*3+i]*Disp_grad_1_on_ElementNodeId_s[k][j];
+						Disp_2grad_2[e][N][i][j] += B_q[i][k*3+i]*Disp_grad_2_on_ElementNodeId_s[k][j];
+						Disp_2grad_3[e][N][i][j] += B_q[i][k*3+i]*Disp_grad_3_on_ElementNodeId_s[k][j];
+					}
+				}
+			}
+		}
+	}
+}
+//変位の勾配の計算。δuj/δX1(node) → δuj/δX1(gauss) same method ??節点に格納した変位勾配を形状関数でガウス点に戻している？
+int Make_Disp_grad_2_Tetra_4_same_method(){
+  	int e, N, i, k;
+	double Gxi[1][3]={0.25,0.25,0.25};
+
+  	for( e = 0; e < NElements; e++ ){
+    		for( N = 0; N < N_IntegrationPoint; N++ ){
+      		for( i = 0; i < DIMENSION; i++ ){
+        			Disp_grad_1_use_same_method[e][N][i]=0.0;
+        			Disp_grad_2_use_same_method[e][N][i]=0.0; //初期化
+        			Disp_grad_3_use_same_method[e][N][i]=0.0;
+          		for( k = 0; k < NO_NODES_ON_ELEMENT_T4; k++ ){
+            			Disp_grad_1_use_same_method[e][N][i]+=N_Tetra_4(k, Gxi[N])*Disp_grad_1_on_Node[ElementNodeId_s[e][k]][i];
+     	       		Disp_grad_2_use_same_method[e][N][i]+=N_Tetra_4(k, Gxi[N])*Disp_grad_2_on_Node[ElementNodeId_s[e][k]][i];
+            			Disp_grad_3_use_same_method[e][N][i]+=N_Tetra_4(k, Gxi[N])*Disp_grad_3_on_Node[ElementNodeId_s[e][k]][i];
+           		}
+      		}
+    		}
+  	}
+}
+//第一ピオラキルヒホッフ応力の計算。Pij(node) → Pij(gauss) same method  ??節点に格納した変位勾配を形状関数でガウス点に戻している？
+int Make_Pai_Tetra_4_same_method(){
+  	int e, N, i, j, k;
+	double Gxi[1][3]={0.25,0.25,0.25};
+
+  	for( e = 0; e < NElements; e++ ){
+    		for( N = 0; N < N_IntegrationPoint; N++ ){
+      		for( i = 0; i < DIMENSION; i++ ){
+        			for( j = 0; j < DIMENSION; j++ ){
+          			Pai_use_same_method[e][N][i][j]=0.0; //初期化
+            			for( k = 0; k < NO_NODES_ON_ELEMENT_T4; k++ ){
+              			Pai_use_same_method[e][N][i][j]+=N_Tetra_4(k, Gxi[N])*Pai_on_Node[ElementNodeId_s[e][k]][i][j];
+             			}
+        			}
+      		}
+    		}
+  	}
+}
+//応力と変形勾配の掛け算の勾配の計算。σij*(δuj/δX1) → δ/δXi*(σij*(δuj/δX1))
+void Make_grad_W_Tetra_4(){	
+	static double W_1_on_ElementNodeId_s[NO_NODES_ON_ELEMENT_T4][DIMENSION];
+	static double W_2_on_ElementNodeId_s[NO_NODES_ON_ELEMENT_T4][DIMENSION];
+	static double W_3_on_ElementNodeId_s[NO_NODES_ON_ELEMENT_T4][DIMENSION];
+	static double B_q[DIMENSION][KIEL_SIZE_T4];
+	static double X[NO_NODES_ON_ELEMENT_T4][DIMENSION],J;
+	double Gxi[1][3]={0.25,0.25,0.25};
+	int N,e,i,j,k;
+
+	for( e = 0; e < NElements; e++ ){
+		for( N = 0; N < N_IntegrationPoint; N++ ){
+			for( i = 0; i < DIMENSION; i++ ){
+				grad_W_1[e][N][i]=0.0;
+				grad_W_2[e][N][i]=0.0; //初期化
+				grad_W_3[e][N][i]=0.0;
+			}
+		}
+		for( i = 0; i < NO_NODES_ON_ELEMENT_T4; i++ ){
+			for( j = 0; j < DIMENSION; j++ ){
+				W_1_on_ElementNodeId_s[i][j] = W_1_on_Node[ ElementNodeId_s[e][i] ][j];
+				W_2_on_ElementNodeId_s[i][j] = W_2_on_Node[ ElementNodeId_s[e][i] ][j];
+				W_3_on_ElementNodeId_s[i][j] = W_3_on_Node[ ElementNodeId_s[e][i] ][j];
+				if(DispMode==0) X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j];
+				else if(DispMode==1) X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j] + Displacement[ ElementNodeId_s[e][i]][j]; //現在配置
+				else{printf("ERROR!! DispMode is not 0 or 1\n"); exit(1);}
+			}
+		}
+		for( N = 0; N < N_IntegrationPoint; N++ ){
+		  	Make_B_q_Matrix_Tetra_4(B_q, Gxi[N], X ,&J );
+			for( i = 0; i < DIMENSION; i++ ){
+				for( k = 0; k < NO_NODES_ON_ELEMENT_T4; k++ ){
+					grad_W_1[e][N][i] += B_q[i][k*3+i]*W_1_on_ElementNodeId_s[k][i];
+					grad_W_2[e][N][i] += B_q[i][k*3+i]*W_2_on_ElementNodeId_s[k][i];
+					grad_W_3[e][N][i] += B_q[i][k*3+i]*W_3_on_ElementNodeId_s[k][i];
+				}
+			}
+		}
+	}
+}
+//q2の勾配を求める関数
+void Make_gradients_q2_Tetra_4(int cfn, int nn, double RR, double temp_z1, double temp_z2, int cfn2){
+  	static double B_q[DIMENSION][KIEL_SIZE_T4],X[NO_NODES_ON_ELEMENT_T4][DIMENSION],J;
+  	static double B_1[DIMENSION][KIEL_SIZE_T4], B_2[DIMENSION][KIEL_SIZE_T4], B_3[DIMENSION][KIEL_SIZE_T4];
+	double Gxi[1][3]={0.25,0.25,0.25};
+  	int i, j, e, N;
+  	double r0;
+  	double Vep_Rem = av_d * REMEVE_LAYER_ELEMENTS+0.001;
+  	double r1 = av_d*RR;
+  	static double q2_d[KIEL_SIZE_T4], q2_dd[NO_NODES_ON_ELEMENT_T4];
+
+  	if(Vep_Rem > V_ep_radius){
+  		r0 = Vep_Rem;
+  		printf("Layer Element Remove Mode |");
+  	}
+  	else{
+  		r0 = V_ep_radius;
+  		printf("Vep Radius Mode |");
+  	}
+  	printf("r0 = %lf ave_CrackMeshLength = %lf \n",r0,av_d);
+  	
+  	//q1の値を設定
+  	for(i=0; i < NNodes; i++){
+  		q2[i][nn] = 0.0; //Zero Clear
+  		Flag_Vep_Nodes[i][nn]=0;
+  	}
+  	for( i = 0; i < NNodes; i++ )
+  	{
+    		double x, y, z, xc, yc, zc, xc2, yc2, zc2;
+    		double xx, yy, zz, xxc, yyc, zzc, xxc2, yyc2, zzc2;
+    		double z0, z2, z1;
+			double R,Rc;
+			double theta,xr,xa,ya;
+			double R2,Rc2;
+			double theta2,xr2,xa2,ya2;
+    		double localCoord0[3], localCoord1[3], localCoord2[3];
+    		int  kk;
+    		z0 =  0.0;
+    		z1= av_d*temp_z1;
+    		z2= av_d*temp_z2;
+    		Search_AreaFlag[i][nn]=0;
+
+    		for(kk=0; kk<3; kk++){
+      		localCoord0[kk] =  crack_node_vec[nn][0][kk];  //進展方向ベクトル
+      		localCoord1[kk] =  crack_node_vec[nn][1][kk]; 	//法線方向ベクトルの3成分作成
+      		localCoord2[kk] =  crack_node_vec[nn][2][kk];  //接線方向ベクトル
+    		}
+    		//	  dA = 2 * z0 + z1;	//仮想き裂進展面積の増加分
+    		//	  printf("dA (given inMake_gradients_q2)  is %15.7e\n",dA);
+    		//dA = 0.0;
+
+    		x = Node_Coordinate[i][0];
+    		y = Node_Coordinate[i][1];  //サーチする点の節点座標
+    		z = Node_Coordinate[i][2];
+
+    		xc = Node_Coordinate[cfn][0];
+    		yc = Node_Coordinate[cfn][1]; //基準にするき裂前縁の節点の座標
+    		zc = Node_Coordinate[cfn][2];
+
+    		xc2 = Node_Coordinate[cfn2][0];
+    		yc2 = Node_Coordinate[cfn2][1]; //基準にする初期き裂前縁の節点の座標
+    		zc2 = Node_Coordinate[cfn2][2];
+
+    		//Converting to local coords  局所座標系に座標変換
+    		xx = ConvLocalCoords(localCoord0, x, y, z);
+    		yy = ConvLocalCoords(localCoord1, x, y, z);
+    		zz = ConvLocalCoords(localCoord2, x, y, z);
+    		xxc = ConvLocalCoords(localCoord0, xc, yc, zc);
+    		yyc = ConvLocalCoords(localCoord1, xc, yc, zc);
+    		zzc = ConvLocalCoords(localCoord2, xc, yc, zc);
+			xxc2 = ConvLocalCoords(localCoord0, xc2, yc2, zc2);
+    		yyc2 = ConvLocalCoords(localCoord1, xc2, yc2, zc2); //基準にする初期き裂前縁の節点
+    		zzc2 = ConvLocalCoords(localCoord2, xc2, yc2, zc2);
+
+    		q2[i][nn] = 0.0;
+    		q2[i][nn]  = ComputeValueQFunc(xx,  yy,  zz, z0,  z2, z1,xxc, yyc, zzc, r0, r1, xxc2, yyc2, zzc2,i ,nn,R, Rc, xr, Rc2, xr2,theta,theta2);    //すべての節点に対してq値が入る。
+    		//q2[i]=Node_Coordinate[i][0];
+
+    		if(q2[i][nn] >0){
+    			if(Search_AreaFlag[i][nn]==1 || Search_AreaFlag[i][nn]==3){
+    				Flag_Vep_Nodes[i][nn]=2;
+    			}
+    			else if(Search_AreaFlag[i][nn]==2 || Search_AreaFlag[i][nn]==4 || Search_AreaFlag[i][nn]==5){
+    				Flag_Vep_Nodes[i][nn]=1;
+    			}
+
+    			if(Crack_Front_Flag[i]==1 || Crack_Front_Flag[i]==2 || Crack_Front_Flag[i]==3){
+    				Flag_Vep_Nodes[i][nn]=2;
+    			}
+    			//モデル表面でqを０にする			
+    			if( Surface_flag[i] == 1 ){
+				q2[i][nn] = 0.0;
+				Flag_Vep_Nodes[i][nn]=0;   //外側Flag
+      		}
+    		}
+    		else{
+    			Flag_Vep_Nodes[i][nn]=0;   //外側Flag
+    			if(Search_AreaFlag[i][nn]==7){
+    				Flag_Vep_Nodes[i][nn]=3;
+    			}
+    			if(Crack_Front_Flag[i]==1 || Crack_Front_Flag[i]==2 || Crack_Front_Flag[i]==3){
+    				Flag_Vep_Nodes[i][nn]=3;
+    			}
+    		}
+
+
+
+
+  	}
+
+  	for( e = 0; e < NElements; e++ ){
+    		for( N = 0; N < N_IntegrationPoint; N++){
+      		for( i = 0; i < DIMENSION; i ++ ){
+				gradients_q2[e][N][i] = 0.0;
+      		}
+      	}
+
+    		//B_qマトリックスと各要素のq2_dを取得（形状関数順に再配列）
+    		for( i = 0; i < NO_NODES_ON_ELEMENT_T4; i++ ){
+			//SPRを二次基底を用いて行った際にJWがnanになっている節点を含む要素を構成する節点のqを0にする//
+			if(isnan(JW_on_Node[ElementNodeId_s[e][i]][0]) != 0){
+	    			for( i = 0; i < NO_NODES_ON_ELEMENT_T4; i++ ){
+					q2[ElementNodeId_s[e][i]][nn] = 0.0;
+					q2_dd[i] = q2[ ElementNodeId_s[e][i] ][nn];
+				}
+			}
+
+      		q2_dd[i] = q2[ ElementNodeId_s[e][i] ][nn];
+      		for( j = 0; j < DIMENSION; j++ ){
+				//     q2_d[ i*DIMENSION +j ] = q2[ ElementNodeId_s[e][i] ];
+				if(DispMode==0) X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j];
+				else if(DispMode==1) X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j] + Displacement[ ElementNodeId_s[e][i]][j]; //現在配置
+				else{printf("ERROR!! DispMode is not 0 or 1\n"); exit(1);}
+      		}
+    		}
+
+    		for( i = 0; i < NO_NODES_ON_ELEMENT_T4; i++ ){
+      		for( j = 0; j < DIMENSION; j++ ){
+				q2_d[i*DIMENSION +j] = q2_dd[i];
+      		}
+      	}
+
+    		//q2の勾配を求める
+    		for( N = 0; N < N_IntegrationPoint; N++ ){
+      		Make_B_q_Matrix_Tetra_4( B_q, Gxi[N], X ,&J );
+      		Make_Gradient_Matrix_Tetra_4(B_1, B_2, B_3, Gxi[N], X ,&J );
+      		for( i = 0; i < DIMENSION; i++ ){
+				for( j = 0; j < KIEL_SIZE_T4; j++ ){
+	  				gradients_q2[e][N][i] += B_q[i][j] * q2_d[j];
+				}
+			}
+   	 	}
+   	 	//ガウス点のqの値を形状関数を使って求める。
+    		for( N = 0; N < N_IntegrationPoint; N++ ){
+      		q2_gp[e][N]=0.0;
+      		for( i = 0; i < NO_NODES_ON_ELEMENT_T4; i++ ){
+				q2_gp[e][N]+=N_Tetra_4(i, Gxi[N])*q2[ElementNodeId_s[e][i]][nn];
+      		}
+    		}
+  	}
+}
+
+/***********************************************************************
+				  六面体一次要素用計算パート
+***********************************************************************/
+//ひずみエネルギ密度の勾配の計算。W → δW/δX1, δW/δX2, δW/δX3
+void Make_W_grad_2_Hexa_8(){	
+	static double JW_on_ElementNodeId_s[NO_NODES_ON_ELEMENT_H8];
+	static double B_1[DIMENSION][KIEL_SIZE_H8], B_2[DIMENSION][KIEL_SIZE_H8], B_3[DIMENSION][KIEL_SIZE_H8];
+	static double X[NO_NODES_ON_ELEMENT_H8][DIMENSION],J;
+	double Gxi[8][3]=	{{-0.57735026918962584208,-0.57735026918962584208,-0.57735026918962584208},
+					 { 0.57735026918962584208,-0.57735026918962584208,-0.57735026918962584208},
+					 {-0.57735026918962584208, 0.57735026918962584208,-0.57735026918962584208},
+					 { 0.57735026918962584208, 0.57735026918962584208,-0.57735026918962584208},
+					 {-0.57735026918962584208,-0.57735026918962584208, 0.57735026918962584208},
+					 { 0.57735026918962584208,-0.57735026918962584208, 0.57735026918962584208},
+					 {-0.57735026918962584208, 0.57735026918962584208, 0.57735026918962584208},
+					 { 0.57735026918962584208, 0.57735026918962584208, 0.57735026918962584208}};
+	int N,e,i,j;
+
+	for( e = 0; e < NElements; e++ ){
+		for( N = 0; N < N_IntegrationPoint; N++){
+			W_grad_1[e][N] = 0.0;
+			W_grad_2[e][N] = 0.0;	//初期化
+			W_grad_3[e][N] = 0.0;
+		 }
+		for( i = 0; i < NO_NODES_ON_ELEMENT_H8; i++ ){
+			for( j = 0; j < DIMENSION; j++ ){
+				JW_on_ElementNodeId_s[i] = JW_on_Node[ ElementNodeId_s[e][i] ][0];
+				if(DispMode==0) X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j];
+				else if(DispMode==1) X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j] + Displacement[ ElementNodeId_s[e][i]][j]; //現在配置
+				else{printf("ERROR!! DispMode is not 0 or 1\n"); exit(1);}
+			}
+		}
+		//x1,x2,x3方向の勾配
+		for( N = 0; N < N_IntegrationPoint; N++ ){
+		  	Make_Gradient_Matrix_Hexa_8(B_1, B_2, B_3, Gxi[N], X ,&J );
+			for( i = 0; i < NO_NODES_ON_ELEMENT_H8; i++ ){
+				  W_grad_1[e][N] += B_1[0][i*3] * JW_on_ElementNodeId_s[i];
+				  W_grad_2[e][N] += B_2[0][i*3] * JW_on_ElementNodeId_s[i];
+				  W_grad_3[e][N] += B_3[0][i*3] * JW_on_ElementNodeId_s[i];
+			}
+		}
+	}
+}
+
+//第一ピオラキルヒホッフ応力の勾配の計算。Pij → δPij/δXi
+void Make_Pai_grad_2_Hexa_8(){	
+  	static double Pai_on_ElementNodeId_s[NO_NODES_ON_ELEMENT_H8][DIMENSION][DIMENSION];
+  	static double B_q[DIMENSION][KIEL_SIZE_H8];
+  	static double X[NO_NODES_ON_ELEMENT_H8][DIMENSION],J;
+	double Gxi[8][3]=	{{-0.57735026918962584208,-0.57735026918962584208,-0.57735026918962584208},
+					 { 0.57735026918962584208,-0.57735026918962584208,-0.57735026918962584208},
+					 {-0.57735026918962584208, 0.57735026918962584208,-0.57735026918962584208},
+					 { 0.57735026918962584208, 0.57735026918962584208,-0.57735026918962584208},
+					 {-0.57735026918962584208,-0.57735026918962584208, 0.57735026918962584208},
+					 { 0.57735026918962584208,-0.57735026918962584208, 0.57735026918962584208},
+					 {-0.57735026918962584208, 0.57735026918962584208, 0.57735026918962584208},
+					 { 0.57735026918962584208, 0.57735026918962584208, 0.57735026918962584208}};
+  	int N,e,i,j,k;
+
+  	for( e = 0; e < NElements; e++ ){
+    		for( N = 0; N < N_IntegrationPoint; N++){
+      		for( i = 0; i < DIMENSION; i ++ ){
+				for( j = 0; j < DIMENSION; j++ ){
+	  				gradients_Pai[e][N][i][j] = 0.0; //初期化
+				}
+      		}
+      	}
+
+    		for( i = 0; i < NO_NODES_ON_ELEMENT_H8; i++ ){
+      		for( j = 0; j < DIMENSION; j++ ){
+				for( k = 0; k < DIMENSION; k++ ){
+	  				Pai_on_ElementNodeId_s[i][j][k] = Pai_on_Node[ ElementNodeId_s[e][i] ][j][k];
+				}
+				if(DispMode==0) X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j];
+				else if(DispMode==1) X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j] + Displacement[ ElementNodeId_s[e][i]][j]; //現在配置
+				else{printf("ERROR!! DispMode is not 0 or 1\n"); exit(1);}
+      		}
+    		}
+
+    		//Xi方向の勾配
+    		for( N = 0; N < N_IntegrationPoint; N++ ){
+      		Make_B_q_Matrix_Hexa_8(B_q, Gxi[N], X ,&J );
+      		for( i = 0; i < DIMENSION; i++ ){
+				for( j = 0; j < DIMENSION; j++ ){
+	  				for( k = 0; k < NO_NODES_ON_ELEMENT_H8; k++ ){
+	    					gradients_Pai[e][N][i][j] += B_q[i][k*3+i]*Pai_on_ElementNodeId_s[k][i][j];
+	  				}
+				}
+      		}
+    		}
+  	}
+}
+
+//変形勾配の勾配の計算。δuj/δX1 → δ2uj/(δXi*δX1)
+void Make_disp_2grad_Hexa_8(){
+	static double Disp_grad_1_on_ElementNodeId_s[NO_NODES_ON_ELEMENT_H8][DIMENSION];
+	static double Disp_grad_2_on_ElementNodeId_s[NO_NODES_ON_ELEMENT_H8][DIMENSION];
+	static double Disp_grad_3_on_ElementNodeId_s[NO_NODES_ON_ELEMENT_H8][DIMENSION];
+	static double B_q[DIMENSION][KIEL_SIZE_H8];
+	static double X[NO_NODES_ON_ELEMENT_H8][DIMENSION],J;
+	double Gxi[8][3]=	{{-0.57735026918962584208,-0.57735026918962584208,-0.57735026918962584208},
+					 { 0.57735026918962584208,-0.57735026918962584208,-0.57735026918962584208},
+					 {-0.57735026918962584208, 0.57735026918962584208,-0.57735026918962584208},
+					 { 0.57735026918962584208, 0.57735026918962584208,-0.57735026918962584208},
+					 {-0.57735026918962584208,-0.57735026918962584208, 0.57735026918962584208},
+					 { 0.57735026918962584208,-0.57735026918962584208, 0.57735026918962584208},
+					 {-0.57735026918962584208, 0.57735026918962584208, 0.57735026918962584208},
+					 { 0.57735026918962584208, 0.57735026918962584208, 0.57735026918962584208}};
+	int N,e,i,j,k;
+	
+	for( e = 0; e < NElements; e++ ){
+		for( N = 0; N < N_IntegrationPoint; N++){
+			for( i = 0; i < DIMENSION; i ++ ){
+				for( j = 0; j < DIMENSION; j++ ){
+					Disp_2grad_1[e][N][i][j] = 0.0;
+					Disp_2grad_2[e][N][i][j] = 0.0; //初期化
+					Disp_2grad_3[e][N][i][j] = 0.0;
+				}
+			}
+		}
+
+		for( i = 0; i < NO_NODES_ON_ELEMENT_H8; i++ ){
+			for( j = 0; j < DIMENSION; j++ ){
+				Disp_grad_1_on_ElementNodeId_s[i][j] = Disp_grad_1_on_Node[ ElementNodeId_s[e][i] ][j];
+				Disp_grad_2_on_ElementNodeId_s[i][j] = Disp_grad_2_on_Node[ ElementNodeId_s[e][i] ][j];
+				Disp_grad_3_on_ElementNodeId_s[i][j] = Disp_grad_3_on_Node[ ElementNodeId_s[e][i] ][j];
+				if(DispMode==0) X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j];
+				else if(DispMode==1) X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j] + Displacement[ ElementNodeId_s[e][i]][j]; //現在配置
+				else{printf("ERROR!! DispMode is not 0 or 1\n"); exit(1);}
+			}
+		}
+		
+		//Xi方向の勾配
+		for( N = 0; N < N_IntegrationPoint; N++ ){
+		  	Make_B_q_Matrix_Hexa_8(B_q, Gxi[N], X ,&J );
+			for( i = 0; i < DIMENSION; i++ ){
+				for( j = 0; j < DIMENSION; j++ ){
+					for( k = 0; k < NO_NODES_ON_ELEMENT_H8; k++ ){
+						Disp_2grad_1[e][N][i][j] += B_q[i][k*3+i]*Disp_grad_1_on_ElementNodeId_s[k][j];
+						Disp_2grad_2[e][N][i][j] += B_q[i][k*3+i]*Disp_grad_2_on_ElementNodeId_s[k][j];
+						Disp_2grad_3[e][N][i][j] += B_q[i][k*3+i]*Disp_grad_3_on_ElementNodeId_s[k][j];
+					}
+				}
+			}
+		}
+	}
+}
+
+//変位の勾配の計算。δuj/δX1(node) → δuj/δX1(gauss) same method ??節点に格納した変位勾配を形状関数でガウス点に戻している？
+int Make_Disp_grad_2_Hexa_8_same_method(){
+  	int e, N, i, k;
+	double Gxi[8][3]=	{{-0.57735026918962584208,-0.57735026918962584208,-0.57735026918962584208},
+					 { 0.57735026918962584208,-0.57735026918962584208,-0.57735026918962584208},
+					 {-0.57735026918962584208, 0.57735026918962584208,-0.57735026918962584208},
+					 { 0.57735026918962584208, 0.57735026918962584208,-0.57735026918962584208},
+					 {-0.57735026918962584208,-0.57735026918962584208, 0.57735026918962584208},
+					 { 0.57735026918962584208,-0.57735026918962584208, 0.57735026918962584208},
+					 {-0.57735026918962584208, 0.57735026918962584208, 0.57735026918962584208},
+					 { 0.57735026918962584208, 0.57735026918962584208, 0.57735026918962584208}};
+
+  	for( e = 0; e < NElements; e++ ){
+    		for( N = 0; N < N_IntegrationPoint; N++ ){
+      		for( i = 0; i < DIMENSION; i++ ){
+        			Disp_grad_1_use_same_method[e][N][i]=0.0;
+        			Disp_grad_2_use_same_method[e][N][i]=0.0; //初期化
+        			Disp_grad_3_use_same_method[e][N][i]=0.0;
+          		for( k = 0; k < NO_NODES_ON_ELEMENT_H8; k++ ){
+            			Disp_grad_1_use_same_method[e][N][i]+=N_Hexa_8(k, Gxi[N])*Disp_grad_1_on_Node[ElementNodeId_s[e][k]][i];
+     	       		Disp_grad_2_use_same_method[e][N][i]+=N_Hexa_8(k, Gxi[N])*Disp_grad_2_on_Node[ElementNodeId_s[e][k]][i];
+            			Disp_grad_3_use_same_method[e][N][i]+=N_Hexa_8(k, Gxi[N])*Disp_grad_3_on_Node[ElementNodeId_s[e][k]][i];
+           		}
+      		}
+    		}
+  	}
+}
+
+//第一ピオラキルヒホッフ応力の計算。Pij(node) → Pij(gauss) same method  ??節点に格納した変位勾配を形状関数でガウス点に戻している？
+int Make_Pai_Hexa_8_same_method(){
+  	int e, N, i, j, k;
+	double Gxi[8][3]=	{{-0.57735026918962584208,-0.57735026918962584208,-0.57735026918962584208},
+					 { 0.57735026918962584208,-0.57735026918962584208,-0.57735026918962584208},
+					 {-0.57735026918962584208, 0.57735026918962584208,-0.57735026918962584208},
+					 { 0.57735026918962584208, 0.57735026918962584208,-0.57735026918962584208},
+					 {-0.57735026918962584208,-0.57735026918962584208, 0.57735026918962584208},
+					 { 0.57735026918962584208,-0.57735026918962584208, 0.57735026918962584208},
+					 {-0.57735026918962584208, 0.57735026918962584208, 0.57735026918962584208},
+					 { 0.57735026918962584208, 0.57735026918962584208, 0.57735026918962584208}};
+
+  	for( e = 0; e < NElements; e++ ){
+    		for( N = 0; N < N_IntegrationPoint; N++ ){
+      		for( i = 0; i < DIMENSION; i++ ){
+        			for( j = 0; j < DIMENSION; j++ ){
+          			Pai_use_same_method[e][N][i][j]=0.0; //初期化
+            			for( k = 0; k < NO_NODES_ON_ELEMENT_H8; k++ ){
+              			Pai_use_same_method[e][N][i][j]+=N_Hexa_8(k, Gxi[N])*Pai_on_Node[ElementNodeId_s[e][k]][i][j];
+             			}
+        			}
+      		}
+    		}
+  	}
+}
+
+//応力と変形勾配の掛け算の勾配の計算。σij*(δuj/δX1) → δ/δXi*(σij*(δuj/δX1))
+void Make_grad_W_Hexa_8(){	
+	static double W_1_on_ElementNodeId_s[NO_NODES_ON_ELEMENT_H8][DIMENSION];
+	static double W_2_on_ElementNodeId_s[NO_NODES_ON_ELEMENT_H8][DIMENSION];
+	static double W_3_on_ElementNodeId_s[NO_NODES_ON_ELEMENT_H8][DIMENSION];
+	static double B_q[DIMENSION][KIEL_SIZE_H8];
+	static double X[NO_NODES_ON_ELEMENT_H8][DIMENSION],J;
+	double Gxi[8][3]=	{{-0.57735026918962584208,-0.57735026918962584208,-0.57735026918962584208},
+					 { 0.57735026918962584208,-0.57735026918962584208,-0.57735026918962584208},
+					 {-0.57735026918962584208, 0.57735026918962584208,-0.57735026918962584208},
+					 { 0.57735026918962584208, 0.57735026918962584208,-0.57735026918962584208},
+					 {-0.57735026918962584208,-0.57735026918962584208, 0.57735026918962584208},
+					 { 0.57735026918962584208,-0.57735026918962584208, 0.57735026918962584208},
+					 {-0.57735026918962584208, 0.57735026918962584208, 0.57735026918962584208},
+					 { 0.57735026918962584208, 0.57735026918962584208, 0.57735026918962584208}};
+	int N,e,i,j,k;
+
+	for( e = 0; e < NElements; e++ ){
+		for( N = 0; N < N_IntegrationPoint; N++ ){
+			for( i = 0; i < DIMENSION; i++ ){
+				grad_W_1[e][N][i]=0.0;
+				grad_W_2[e][N][i]=0.0; //初期化
+				grad_W_3[e][N][i]=0.0;
+			}
+		}
+		for( i = 0; i < NO_NODES_ON_ELEMENT_H8; i++ ){
+			for( j = 0; j < DIMENSION; j++ ){
+				W_1_on_ElementNodeId_s[i][j] = W_1_on_Node[ ElementNodeId_s[e][i] ][j];
+				W_2_on_ElementNodeId_s[i][j] = W_2_on_Node[ ElementNodeId_s[e][i] ][j];
+				W_3_on_ElementNodeId_s[i][j] = W_3_on_Node[ ElementNodeId_s[e][i] ][j];
+				if(DispMode==0) X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j];
+				else if(DispMode==1) X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j] + Displacement[ ElementNodeId_s[e][i]][j]; //現在配置
+				else{printf("ERROR!! DispMode is not 0 or 1\n"); exit(1);}
+			}
+		}
+		for( N = 0; N < N_IntegrationPoint; N++ ){
+		  	Make_B_q_Matrix_Hexa_8(B_q, Gxi[N], X ,&J );
+			for( i = 0; i < DIMENSION; i++ ){
+				for( k = 0; k < NO_NODES_ON_ELEMENT_H8; k++ ){
+					grad_W_1[e][N][i] += B_q[i][k*3+i]*W_1_on_ElementNodeId_s[k][i];
+					grad_W_2[e][N][i] += B_q[i][k*3+i]*W_2_on_ElementNodeId_s[k][i];
+					grad_W_3[e][N][i] += B_q[i][k*3+i]*W_3_on_ElementNodeId_s[k][i];
+				}
+			}
+		}
+	}
+}
+
+//q2の勾配を求める関数
+void Make_gradients_q2_Hexa_8(int cfn, int nn, double RR, double temp_z1, double temp_z2, int cfn2){
+  	static double B_q[DIMENSION][KIEL_SIZE_H8],X[NO_NODES_ON_ELEMENT_H8][DIMENSION],J;
+  	static double B_1[DIMENSION][KIEL_SIZE_H8], B_2[DIMENSION][KIEL_SIZE_H8], B_3[DIMENSION][KIEL_SIZE_H8];
+	double Gxi[8][3]=	{{-0.57735026918962584208,-0.57735026918962584208,-0.57735026918962584208},
+					 { 0.57735026918962584208,-0.57735026918962584208,-0.57735026918962584208},
+					 {-0.57735026918962584208, 0.57735026918962584208,-0.57735026918962584208},
+					 { 0.57735026918962584208, 0.57735026918962584208,-0.57735026918962584208},
+					 {-0.57735026918962584208,-0.57735026918962584208, 0.57735026918962584208},
+					 { 0.57735026918962584208,-0.57735026918962584208, 0.57735026918962584208},
+					 {-0.57735026918962584208, 0.57735026918962584208, 0.57735026918962584208},
+					 { 0.57735026918962584208, 0.57735026918962584208, 0.57735026918962584208}};
+  	int i, j, e, N;
+  	double r0;
+  	double Vep_Rem = Ave_CrackFrontMeshLength_H8 * REMEVE_LAYER_ELEMENTS + 0.00001;
+  	double r1 = av_d * RR;
+  	static double q2_d[KIEL_SIZE_H8], q2_dd[NO_NODES_ON_ELEMENT_H8];
+
+  	if(Vep_Rem > V_ep_radius){
+  		r0 = Vep_Rem;
+  		printf("Layer Element Remove Mode |");
+  	}
+  	else{
+  		r0 = V_ep_radius;
+  		printf("Vep Radius Mode |");
+  	}
+  	printf("r0 = %lf ave_CrackMeshLength = %lf \n",r0,Ave_CrackFrontMeshLength_H8);
+
+  	//q1の値を設定
+  	for(i=0; i < NNodes; i++){
+  		q2[i][nn] = 0.0; //Zero Clear
+  		Flag_Vep_Nodes[i][nn]=0.0;
+  	}
+
+
+
+
+  	for( i = 0; i < NNodes; i++ )
+  	{
+    		double x, y, z, xc, yc, zc, xc2, yc2, zc2;
+    		double xx, yy, zz, xxc, yyc, zzc, xxc2, yyc2, zzc2;
+    		double z0, z2, z1;
+			double R,Rc;
+			double theta,xr,xa,ya;
+			double R2,Rc2;
+			double theta2,xr2,xa2,ya2;
+    		double localCoord0[3], localCoord1[3], localCoord2[3];
+    		int  kk;
+    		z0 =  0.0;
+    		z1= av_d*temp_z1;
+    		z2= av_d*temp_z2;
+    		Search_AreaFlag[i][nn]=0;
+
+    		for(kk=0; kk<3; kk++){
+      		localCoord0[kk] =  crack_node_vec[nn][0][kk];  //進展方向ベクトル
+      		localCoord1[kk] =  crack_node_vec[nn][1][kk]; 	//法線方向ベクトルの3成分作成
+      		localCoord2[kk] =  crack_node_vec[nn][2][kk];  //接線方向ベクトル
+    		}
+    		//	  dA = 2 * z0 + z1;	//仮想き裂進展面積の増加分
+    		//	  printf("dA (given inMake_gradients_q2)  is %15.7e\n",dA);
+    		//dA = 0.0;
+
+    		x = Node_Coordinate[i][0];
+    		y = Node_Coordinate[i][1];  //サーチする点の節点座標
+    		z = Node_Coordinate[i][2];
+
+    		xc = Node_Coordinate[cfn][0];
+    		yc = Node_Coordinate[cfn][1]; //基準にする現在き裂前縁の節点の座標
+    		zc = Node_Coordinate[cfn][2];
+
+    		xc2 = Node_Coordinate[cfn2][0];
+    		yc2 = Node_Coordinate[cfn2][1]; //基準にする初期き裂前縁の節点の座標
+    		zc2 = Node_Coordinate[cfn2][2];
+
+			theta = acos((xc*x+yc*y)/((xc*xc+yc*yc)*(x*x+y*y)));
+			
+			R = sqrt(x*x+y*y);
+			Rc = sqrt(xc*xc+yc*yc); //xy面中心との距離
+			xa=x*Rc/R;
+			ya=y*Rc/R;
+
+			xr=sqrt((xa-xc)*(xa-xc)+(ya-yc)*(ya-yc))*theta/(2*fabs(sin(fabs(theta)/2)));
+
+
+			theta2 = acos((xc2*x+yc2*y)/((xc2*xc2+yc2*yc2)*(x*x+y*y)));
+			
+			R2 = sqrt(x*x+y*y);
+			Rc2 = sqrt(xc2*xc2+yc2*yc2); //xy面中心との距離
+			xa2=x*Rc2/R2;
+			ya2=y*Rc2/R2;
+
+			xr2=sqrt((xa2-xc2)*(xa2-xc2)+(ya2-yc2)*(ya2-yc2))*theta2/(2*fabs(sin(fabs(theta2)/2)));
+
+
+
+    		//Converting to local coords  局所座標系に座標変換
+    		xx = ConvLocalCoords(localCoord0, x, y, z);
+    		yy = ConvLocalCoords(localCoord1, x, y, z); //サーチする点の節点
+    		zz = ConvLocalCoords(localCoord2, x, y, z);
+    		xxc = ConvLocalCoords(localCoord0, xc, yc, zc);
+    		yyc = ConvLocalCoords(localCoord1, xc, yc, zc); //基準にする現在き裂前縁の節点
+    		zzc = ConvLocalCoords(localCoord2, xc, yc, zc);
+			xxc2 = ConvLocalCoords(localCoord0, xc2, yc2, zc2);
+    		yyc2 = ConvLocalCoords(localCoord1, xc2, yc2, zc2); //基準にする初期き裂前縁の節点
+    		zzc2 = ConvLocalCoords(localCoord2, xc2, yc2, zc2);
+
+
+    		q2[i][nn] = 0.0;
+    		q2[i][nn]  = ComputeValueQFunc(xx,  yy,  zz, z0,  z2, z1,xxc, yyc, zzc, r0, r1, xxc2, yyc2, zzc2,i,nn,R, Rc, xr, Rc2, xr2,theta,theta2);    //すべての節点に対してq値が入る。
+
+    		if(q2[i][nn] >0){
+    			if(Search_AreaFlag[i][nn]==1 || Search_AreaFlag[i][nn]==3){
+    				Flag_Vep_Nodes[i][nn]=2;
+    			}
+    			else if(Search_AreaFlag[i][nn]==2 || Search_AreaFlag[i][nn]==4 || Search_AreaFlag[i][nn]==5){
+    				Flag_Vep_Nodes[i][nn]=1;
+    			}
+
+    			if(Crack_Front_Flag[i]==1 || Crack_Front_Flag[i]==2 || Crack_Front_Flag[i]==3){
+    				Flag_Vep_Nodes[i][nn]=2;
+    			}
+
+    			//モデル表面でqを０にする			
+    			if( Surface_flag[i] == 1 ){
+				q2[i][nn] = 0.0;
+				if(Search_AreaFlag[i][nn]==7){
+    					Flag_Vep_Nodes[i][nn]=3;
+    				}
+    				else if(Crack_Front_Flag[i]==1 || Crack_Front_Flag[i]==2 || Crack_Front_Flag[i]==3){
+    					Flag_Vep_Nodes[i][nn]=3;
+    				}
+    				else{
+    					Flag_Vep_Nodes[i][nn]=0;   //外側Flag
+    				}
+      		}
+    		}
+    		else{
+    			Flag_Vep_Nodes[i][nn]=0;   //外側Flag
+    			if(Search_AreaFlag[i][nn]==7){
+    				Flag_Vep_Nodes[i][nn]=3;
+    			}
+    			if(Crack_Front_Flag[i]==1 || Crack_Front_Flag[i]==2 || Crack_Front_Flag[i]==3){
+    				Flag_Vep_Nodes[i][nn]=3;
+    			}
+    		}
+
+
+
+  	}
+
+  	for( e = 0; e < NElements; e++ ){
+    		for( N = 0; N < N_IntegrationPoint; N++){
+      		for( i = 0; i < DIMENSION; i ++ ){
+				gradients_q2[e][N][i] = 0.0;
+      		}
+      	}
+
+    		//B_qマトリックスと各要素のq2_dを取得（形状関数順に再配列）
+    		for( i = 0; i < NO_NODES_ON_ELEMENT_H8; i++ ){
+			//SPRを二次基底を用いて行った際にJWがnanになっている節点を含む要素を構成する節点のqを0にする//
+			if(isnan(JW_on_Node[ElementNodeId_s[e][i]][0]) != 0){
+	    			for( i = 0; i < NO_NODES_ON_ELEMENT_H8; i++ ){
+					q2[ElementNodeId_s[e][i]][nn] = 0.0;
+					q2_dd[i] = q2[ ElementNodeId_s[e][i] ][nn];
+				}
+			}
+
+      		q2_dd[i] = q2[ ElementNodeId_s[e][i] ][nn];
+      		for( j = 0; j < DIMENSION; j++ ){
+				//     q2_d[ i*DIMENSION +j ] = q2[ ElementNodeId_s[e][i] ];
+				if(DispMode==0) X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j];
+				else if(DispMode==1) X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j] + Displacement[ ElementNodeId_s[e][i]][j]; //現在配置
+				else{printf("ERROR!! DispMode is not 0 or 1\n"); exit(1);}
+      		}
+    		}
+
+    		for( i = 0; i < NO_NODES_ON_ELEMENT_H8; i++ ){
+      		for( j = 0; j < DIMENSION; j++ ){
+				q2_d[i*DIMENSION +j] = q2_dd[i];
+      		}
+      	}
+
+    		//q2の勾配を求める
+    		for( N = 0; N < N_IntegrationPoint; N++ ){
+      		Make_B_q_Matrix_Hexa_8( B_q, Gxi[N], X ,&J );
+      		Make_Gradient_Matrix_Hexa_8(B_1, B_2, B_3, Gxi[N], X ,&J );
+      		for( i = 0; i < DIMENSION; i++ ){
+				for( j = 0; j < KIEL_SIZE_H8; j++ ){
+	  				gradients_q2[e][N][i] += B_q[i][j] * q2_d[j];
+				}
+			}
+   	 	}
+   	 	//ガウス点のqの値を形状関数を使って求める。
+    		for( N = 0; N < N_IntegrationPoint; N++ ){
+      		q2_gp[e][N]=0.0;
+      		for( i = 0; i < NO_NODES_ON_ELEMENT_H8; i++ ){
+				q2_gp[e][N]+=N_Hexa_8(i, Gxi[N])*q2[ElementNodeId_s[e][i]][nn];
+      		}
+    		}
+  	}
+}
+/**************************************************
+			要素タイプ依存なしの関数
+***************************************************/
+//第一ピオラキルヒホッフ応力の勾配と変形勾配の掛け算。δPij/δXi*δuj/δX1
+int Make_Pai_grad_disp_grad(){
+  	int e, N, i, j;
+	for( e = 0; e < NElements; e++ ){
+		for( N = 0; N < N_IntegrationPoint; N++ ){
+				Pai_grad_disp_grad_1[e][N]=0.0;
+				Pai_grad_disp_grad_2[e][N]=0.0;
+				Pai_grad_disp_grad_3[e][N]=0.0;
+			for( i = 0; i < DIMENSION; i++ ){
+				for( j = 0; j < DIMENSION; j++ ){
+					if(method==1){
+						Pai_grad_disp_grad_1[e][N]+=gradients_Pai[e][N][i][j]*Disp_grad_1[e][N][j];
+						Pai_grad_disp_grad_2[e][N]+=gradients_Pai[e][N][i][j]*Disp_grad_2[e][N][j];
+						Pai_grad_disp_grad_3[e][N]+=gradients_Pai[e][N][i][j]*Disp_grad_3[e][N][j];
+					}
+					if(method==2){
+						Pai_grad_disp_grad_1[e][N]+=gradients_Pai[e][N][i][j]*Disp_grad_1_use_same_method[e][N][j];
+						Pai_grad_disp_grad_2[e][N]+=gradients_Pai[e][N][i][j]*Disp_grad_2_use_same_method[e][N][j];
+						Pai_grad_disp_grad_3[e][N]+=gradients_Pai[e][N][i][j]*Disp_grad_3_use_same_method[e][N][j];
+					}
+				}
+			}
+		}
+	}
+}
+
+//第一ピオラキルヒホッフ応力と変形勾配の勾配の掛け算。Pij*δ2uj/(δXi*δX1)
+int Make_Pai_disp_2grad(){
+  	int e, N, i, j;
+
+	for( e = 0; e < NElements; e++ ){
+		for( N = 0; N < N_IntegrationPoint; N++ ){
+				Pai_disp_2grad_1[e][N]=0.0;
+				Pai_disp_2grad_2[e][N]=0.0;
+				Pai_disp_2grad_3[e][N]=0.0;
+			for( i = 0; i < DIMENSION; i++ ){
+				for( j = 0; j < DIMENSION; j++ ){
+					if(method==1){
+						Pai_disp_2grad_1[e][N]+=Pai[e][N][i][j]*Disp_2grad_1[e][N][i][j];
+						Pai_disp_2grad_2[e][N]+=Pai[e][N][i][j]*Disp_2grad_2[e][N][i][j];
+						Pai_disp_2grad_3[e][N]+=Pai[e][N][i][j]*Disp_2grad_3[e][N][i][j];
+					}
+					if(method==2){
+						Pai_disp_2grad_1[e][N]+=Pai_use_same_method[e][N][i][j]*Disp_2grad_1[e][N][i][j];
+						Pai_disp_2grad_2[e][N]+=Pai_use_same_method[e][N][i][j]*Disp_2grad_2[e][N][i][j];
+						Pai_disp_2grad_3[e][N]+=Pai_use_same_method[e][N][i][j]*Disp_2grad_3[e][N][i][j];
+					}
+				}
+			}
+		}
+	}
+}
+
+//応力と変形勾配の掛け算の勾配の総和規約をとる。δ/δXi*(σij*(δuj/δX1))
+int Make_grad_Pai_and_disp_grad(){
+
+  	int N,e,i;
+  	for( e = 0; e < NElements; e++ ){
+		for( N = 0; N < N_IntegrationPoint; N++ ){
+			grad_Pai_and_disp_grad_1[e][N]=0.0;
+			grad_Pai_and_disp_grad_2[e][N]=0.0;
+			grad_Pai_and_disp_grad_3[e][N]=0.0;
+		}
+	}
+
+  	for( e = 0; e < NElements; e++ ){
+		for( N = 0; N < N_IntegrationPoint; N++ ){
+			for( i = 0; i < DIMENSION; i++ ){
+				grad_Pai_and_disp_grad_1[e][N]+=grad_W_1[e][N][i];
+				grad_Pai_and_disp_grad_2[e][N]+=grad_W_2[e][N][i];
+				grad_Pai_and_disp_grad_3[e][N]+=grad_W_3[e][N][i];
+			}
+		}
+	}
+}
+
+//第二項(qは掛けていない)
+int Make_second_eq_without_q(){
+  	int e, N;
+
+  	for( e = 0; e < NElements; e++ ){
+    		for( N = 0; N < N_IntegrationPoint; N++ ){
+      		if(second_eq_type==1){
+        			second_eq_1_without_q[e][N]=W_grad_1[e][N]-Pai_grad_disp_grad_1[e][N]-Pai_disp_2grad_1[e][N];
+        			second_eq_2_without_q[e][N]=W_grad_2[e][N]-Pai_grad_disp_grad_2[e][N]-Pai_disp_2grad_2[e][N];
+        			second_eq_3_without_q[e][N]=W_grad_3[e][N]-Pai_grad_disp_grad_3[e][N]-Pai_disp_2grad_3[e][N];
+      		}
+      		if(second_eq_type==2){
+        			second_eq_1_without_q[e][N]=W_grad_1[e][N]-Pai_disp_2grad_1[e][N];
+        			second_eq_2_without_q[e][N]=W_grad_2[e][N]-Pai_disp_2grad_2[e][N];
+        			second_eq_3_without_q[e][N]=W_grad_3[e][N]-Pai_disp_2grad_3[e][N];
+        			//printf("Ele %d GP %d | %lf %lf %lf | %lf %lf %lf \n",e,N,W_grad_1[e][N],W_grad_2[e][N],W_grad_3[e][N],Pai_disp_2grad_1[e][N],Pai_disp_2grad_2[e][N],Pai_disp_2grad_3[e][N]);
+      		}
+      		if(second_eq_type==3){
+        			second_eq_1_without_q[e][N]=W_grad_1[e][N]-grad_Pai_and_disp_grad_1[e][N];
+        			second_eq_2_without_q[e][N]=W_grad_2[e][N]-grad_Pai_and_disp_grad_2[e][N];
+        			second_eq_3_without_q[e][N]=W_grad_3[e][N]-grad_Pai_and_disp_grad_3[e][N];
+      		}
+    		}
+  	}
+}
+
+void Make_P_2j_gradients_q2(){
+	int i, j, k;
+	
+	for( k = 0; k < N_IntegrationPoint; k++ ){
+		for( i = 0; i < NElements; i++ ){
+		  	P_1j_gradients_q2[i][k] = 0.0; P_2j_gradients_q2[i][k] = 0.0; P_3j_gradients_q2[i][k] = 0.0;
+			for( j = 0; j < DIMENSION; j++ ){
+			  	P_1j_gradients_q2[i][k] += P_1j[i][k][j] * gradients_q2[i][k][j];
+			  	P_2j_gradients_q2[i][k] += P_2j[i][k][j] * gradients_q2[i][k][j];
+			  	P_3j_gradients_q2[i][k] += P_3j[i][k][j] * gradients_q2[i][k][j];
+			}
+			//printf("GP: %d Ele: %d %lf %lf %lf\n",k,i,P_1j_gradients_q2[i][k],P_2j_gradients_q2[i][k],P_3j_gradients_q2[i][k] );///kesuzo!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+		}
+	}	
+}
+
+//第二項
+int Make_second_eq(){
+  	int e, N;
+	for( e = 0; e < NElements; e++ ){
+    		for( N = 0; N < N_IntegrationPoint; N++ ){
+      		second_eq_1[e][N]=0.0;
+      		second_eq_2[e][N]=0.0;
+     		second_eq_3[e][N]=0.0;
+    		}
+  	}
+
+  	for( e = 0; e < NElements; e++ ){
+    		for( N = 0; N < N_IntegrationPoint; N++ ){
+      		second_eq_1[e][N]=second_eq_1_without_q[e][N]*q2_gp[e][N];
+      		second_eq_2[e][N]=second_eq_2_without_q[e][N]*q2_gp[e][N];
+      		second_eq_3[e][N]=second_eq_3_without_q[e][N]*q2_gp[e][N];
+
+      		//if(q2_gp[e][N]>0)printf("Ele %d GP %d %le %le %le %le\n",e,N,second_eq_1_without_q[e][N],second_eq_2_without_q[e][N],second_eq_3_without_q[e][N],q2_gp[e][N]);
+    		}
+  	}
+}
+
+//第三項計算
+static double J1_Q1[400]={0};
+static double J2_Q2[400]={0};
+static double J3_Q3[400]={0};
+static double tempJ1_all[400]={0};
+static double tempWK_all[400]={0};
+
+double Make_3rd_Term_on_GaussPoint(int iCrackNodeID,int iElementID,int i_GP,double dA,double J){
+
+	int i,j;
+	double temp_q_grad_tan,Pai_CrackTangent[3]={0};
+	double J_temp_3rdterm;
+	double W1_3rdT,W2_3rdT,W3_3rdT;
+	double J_3_1,J_3_2,J_3_3;
+	double Pai_Crack1[3]={0};
+	double Pai_Crack2[3]={0};
+	double tempWK[3]={0};
+	double tempW1_without3rdterm[3]={0};
+	double tempW2_without3rdterm[3]={0};
+	double temp_q_grad_1,temp_q_grad_2;
+
+	for(i=0;i<DIMENSION;i++){
+		for(j=0;j<DIMENSION;j++){
+			Pai_CrackTangent[i] += crack_node_vec[iCrackNodeID][2][j]*Pai[iElementID][i_GP][j][i];
+	//////////////////////////////////////////////検証用//////////////////////////////////////////////////////
+			Pai_Crack1[i] += crack_node_vec[iCrackNodeID][0][j]*Pai[iElementID][i_GP][j][i];
+			Pai_Crack2[i] += crack_node_vec[iCrackNodeID][1][j]*Pai[iElementID][i_GP][j][i];
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+		}
+	}
+
+	//printf("Pai1( %lf %lf %lf ) 2( %lf %lf %lf ) 3( %lf %lf %lf )",Pai_Crack1[0],Pai_Crack1[1],Pai_Crack1[2],Pai_Crack2[0],Pai_Crack2[1],Pai_Crack2[2],Pai_CrackTangent[0],Pai_CrackTangent[1],Pai_CrackTangent[2]);
+	///////////////////////////////////////////検証用///////////////////////////////////////////////////////////
+	for(j=0;j<3;j++){
+			tempWK[0] += W_K_D1[iElementID][i_GP][j]*gradients_q2[iElementID][i_GP][j];
+			tempWK[1] += W_K_D2[iElementID][i_GP][j]*gradients_q2[iElementID][i_GP][j];    //ひずみエネルギー密度とq値の勾配をかけたもの
+			tempWK[2] += W_K_D3[iElementID][i_GP][j]*gradients_q2[iElementID][i_GP][j];
+	}
+	/*printf(" DispGrad1( %lf %lf %lf ) 2( %lf %lf %lf ) 3( %lf %lf %lf )",Disp_grad_1[iElementID][i_GP][0],Disp_grad_1[iElementID][i_GP][1],Disp_grad_1[iElementID][i_GP][2],
+	 																Disp_grad_2[iElementID][i_GP][0],Disp_grad_2[iElementID][i_GP][1],Disp_grad_2[iElementID][i_GP][2],
+	 																Disp_grad_3[iElementID][i_GP][0],Disp_grad_3[iElementID][i_GP][1],Disp_grad_3[iElementID][i_GP][2]);
+	printf("q ( %lf %lf %lf ) vec1( %lf %lf %lf ) vec2( %lf %lf %lf )vec3( %lf %lf %lf )\n",gradients_q2[iElementID][i_GP][0],gradients_q2[iElementID][i_GP][1],gradients_q2[iElementID][i_GP][2],
+																				crack_node_vec[iCrackNodeID][0][0],crack_node_vec[iCrackNodeID][0][1],crack_node_vec[iCrackNodeID][0][2],
+																				crack_node_vec[iCrackNodeID][1][0],crack_node_vec[iCrackNodeID][1][1],crack_node_vec[iCrackNodeID][1][2],
+																				crack_node_vec[iCrackNodeID][2][0],crack_node_vec[iCrackNodeID][2][1],crack_node_vec[iCrackNodeID][2][2]);*/
+	tempW1_without3rdterm[0]=  Pai_Crack1[0] * Disp_grad_1[iElementID][i_GP][0]
+							+ Pai_Crack1[1] * Disp_grad_1[iElementID][i_GP][1]
+							+ Pai_Crack1[2] * Disp_grad_1[iElementID][i_GP][2];
+	tempW1_without3rdterm[1]=  Pai_Crack1[0] * Disp_grad_2[iElementID][i_GP][0]
+							+ Pai_Crack1[1] * Disp_grad_2[iElementID][i_GP][1]
+							+ Pai_Crack1[2] * Disp_grad_2[iElementID][i_GP][2];
+	tempW1_without3rdterm[2]=  Pai_Crack1[0] * Disp_grad_3[iElementID][i_GP][0]
+							+ Pai_Crack1[1] * Disp_grad_3[iElementID][i_GP][1]
+							+ Pai_Crack1[2] * Disp_grad_3[iElementID][i_GP][2];   //き裂前縁の局所座標系を使って応力の成分を取り出したものと変位勾配をかけたもの
+	tempW2_without3rdterm[0]=  Pai_Crack2[0] * Disp_grad_1[iElementID][i_GP][0]
+							+ Pai_Crack2[1] * Disp_grad_1[iElementID][i_GP][1]
+							+ Pai_Crack2[2] * Disp_grad_1[iElementID][i_GP][2];
+	tempW2_without3rdterm[1]=  Pai_Crack2[0] * Disp_grad_2[iElementID][i_GP][0]
+							+ Pai_Crack2[1] * Disp_grad_2[iElementID][i_GP][1]
+							+ Pai_Crack2[2] * Disp_grad_2[iElementID][i_GP][2];
+	tempW2_without3rdterm[2]=  Pai_Crack2[0] * Disp_grad_3[iElementID][i_GP][0]
+							+ Pai_Crack2[1] * Disp_grad_3[iElementID][i_GP][1]
+							+ Pai_Crack2[2] * Disp_grad_3[iElementID][i_GP][2];
+	temp_q_grad_1 = gradients_q2[iElementID][i_GP][0]*crack_node_vec[iCrackNodeID][0][0]
+						+ gradients_q2[iElementID][i_GP][1]*crack_node_vec[iCrackNodeID][0][1]
+						+ gradients_q2[iElementID][i_GP][2]*crack_node_vec[iCrackNodeID][0][2];
+	temp_q_grad_2 = gradients_q2[iElementID][i_GP][0]*crack_node_vec[iCrackNodeID][1][0]
+						+ gradients_q2[iElementID][i_GP][1]*crack_node_vec[iCrackNodeID][1][1]
+						+ gradients_q2[iElementID][i_GP][2]*crack_node_vec[iCrackNodeID][1][2];	
+	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+	temp_q_grad_tan = gradients_q2[iElementID][i_GP][0]*crack_node_vec[iCrackNodeID][2][0]
+						+ gradients_q2[iElementID][i_GP][1]*crack_node_vec[iCrackNodeID][2][1]   //q値の勾配、き裂接線方向に変換
+						+ gradients_q2[iElementID][i_GP][2]*crack_node_vec[iCrackNodeID][2][2];
+
+	W1_3rdT = Pai_CrackTangent[0] * Disp_grad_1[iElementID][i_GP][0]
+			+ Pai_CrackTangent[1] * Disp_grad_1[iElementID][i_GP][1]
+			+ Pai_CrackTangent[2] * Disp_grad_1[iElementID][i_GP][2];
+
+	W2_3rdT = Pai_CrackTangent[0] * Disp_grad_2[iElementID][i_GP][0]
+			+ Pai_CrackTangent[1] * Disp_grad_2[iElementID][i_GP][1]         //接線方向の応力・変位勾配
+			+ Pai_CrackTangent[2] * Disp_grad_2[iElementID][i_GP][2];
+
+	W3_3rdT = Pai_CrackTangent[0] * Disp_grad_3[iElementID][i_GP][0]
+			+ Pai_CrackTangent[1] * Disp_grad_3[iElementID][i_GP][1]
+			+ Pai_CrackTangent[2] * Disp_grad_3[iElementID][i_GP][2];
+
+	J_3_1 = W1_3rdT * temp_q_grad_tan;
+	J_3_2 = W2_3rdT * temp_q_grad_tan;
+	J_3_3 = W3_3rdT * temp_q_grad_tan;
+	J_temp_3rdterm = crack_node_vec[iCrackNodeID][0][0] * J_3_1 + crack_node_vec[iCrackNodeID][0][1] * J_3_2
+					+ crack_node_vec[iCrackNodeID][0][2] * J_3_3;
+
+	///////////////////////////////////////////////検証用///////////////////////////////////////////////////////////
+	double J_3_1_q2,J_3_2_q2,J_3_3_q2,J_3_1_q1,J_3_2_q1,J_3_3_q1;
+	J_3_1_q1 = W1_3rdT * temp_q_grad_1;
+	J_3_2_q1 = W2_3rdT * temp_q_grad_1;
+	J_3_3_q1 = W3_3rdT * temp_q_grad_1;
+	J_3_1_q2 = W1_3rdT * temp_q_grad_2;
+	J_3_2_q2 = W2_3rdT * temp_q_grad_2;
+	J_3_3_q2 = W3_3rdT * temp_q_grad_2;
+
+	double J_2_1_q2,J_2_2_q2,J_2_3_q2,J_2_1_q1,J_2_2_q1,J_2_3_q1,J_2_1_q3,J_2_2_q3,J_2_3_q3;
+	J_2_1_q1 = tempW2_without3rdterm[0] * temp_q_grad_1;
+	J_2_2_q1 = tempW2_without3rdterm[1] * temp_q_grad_1;
+	J_2_3_q1 = tempW2_without3rdterm[2] * temp_q_grad_1;
+	J_2_1_q2 = tempW2_without3rdterm[0] * temp_q_grad_2;
+	J_2_2_q2 = tempW2_without3rdterm[1] * temp_q_grad_2;
+	J_2_3_q2 = tempW2_without3rdterm[2] * temp_q_grad_2;
+	J_2_1_q3 = tempW2_without3rdterm[0] *	temp_q_grad_tan;
+	J_2_2_q3 = tempW2_without3rdterm[1] *	temp_q_grad_tan;
+	J_2_3_q3 = tempW2_without3rdterm[2] *	temp_q_grad_tan;
+
+	double J_1_1_q2,J_1_2_q2,J_1_3_q2,J_1_1_q1,J_1_2_q1,J_1_3_q1,J_1_1_q3,J_1_2_q3,J_1_3_q3;
+	J_1_1_q1 = tempW1_without3rdterm[0] * temp_q_grad_1;
+	J_1_2_q1 = tempW1_without3rdterm[1] * temp_q_grad_1;
+	J_1_3_q1 = tempW1_without3rdterm[2] * temp_q_grad_1;
+	J_1_1_q2 = tempW1_without3rdterm[0] * temp_q_grad_2;
+	J_1_2_q2 = tempW1_without3rdterm[1] * temp_q_grad_2;
+	J_1_3_q2 = tempW1_without3rdterm[2] * temp_q_grad_2;
+	J_1_1_q3 = tempW1_without3rdterm[0] * temp_q_grad_tan;
+	J_1_2_q3 = tempW1_without3rdterm[1] * temp_q_grad_tan;
+	J_1_3_q3 = tempW1_without3rdterm[2] * temp_q_grad_tan;
+
+	double J1_q1,J1_q2,J1_q3,J2_q1,J2_q2,J2_q3,J3_q1,J3_q2,J3_q3;
+	J1_q1 = crack_node_vec[iCrackNodeID][0][0] * J_1_1_q1 + crack_node_vec[iCrackNodeID][0][1] * J_1_2_q1 + crack_node_vec[iCrackNodeID][0][2] * J_1_3_q1;
+	J1_q2 = crack_node_vec[iCrackNodeID][0][0] * J_1_1_q2 + crack_node_vec[iCrackNodeID][0][1] * J_1_2_q2 + crack_node_vec[iCrackNodeID][0][2] * J_1_3_q2;
+	J1_q3 = crack_node_vec[iCrackNodeID][0][0] * J_1_1_q3 + crack_node_vec[iCrackNodeID][0][1] * J_1_2_q3 + crack_node_vec[iCrackNodeID][0][2] * J_1_3_q3;
+	J2_q1 = crack_node_vec[iCrackNodeID][0][0] * J_2_1_q1 + crack_node_vec[iCrackNodeID][0][1] * J_2_2_q1 + crack_node_vec[iCrackNodeID][0][2] * J_2_3_q1;
+	J2_q2 = crack_node_vec[iCrackNodeID][0][0] * J_2_1_q2 + crack_node_vec[iCrackNodeID][0][1] * J_2_2_q2 + crack_node_vec[iCrackNodeID][0][2] * J_2_3_q2;
+	J2_q3 = crack_node_vec[iCrackNodeID][0][0] * J_2_1_q3 + crack_node_vec[iCrackNodeID][0][1] * J_2_2_q3 + crack_node_vec[iCrackNodeID][0][2] * J_2_3_q3;
+	J3_q1 = crack_node_vec[iCrackNodeID][0][0] * J_3_1_q1 + crack_node_vec[iCrackNodeID][0][1] * J_3_2_q1 + crack_node_vec[iCrackNodeID][0][2] * J_3_3_q1;
+	J3_q2 = crack_node_vec[iCrackNodeID][0][0] * J_3_1_q2 + crack_node_vec[iCrackNodeID][0][1] * J_3_2_q2 + crack_node_vec[iCrackNodeID][0][2] * J_3_3_q2;
+	J3_q3 = J_temp_3rdterm;
+
+	//printf("J3 q grad ( %lf %lf %lf ) J11( %lf %lf %lf )J22( %lf %lf %lf )J33( %lf %lf %lf )\n",temp_q_grad_1,temp_q_grad_2,temp_q_grad_tan,
+	//					J_1_1_q1,J_1_2_q1,J_1_3_q1,J_2_1_q2,J_2_2_q2,J_2_3_q2,J_3_1,J_3_2,J_3_3);
+
+	double temp_all_1,temp_all_2,temp_all_3,temp_all,WK_CRACKPROP;
+		temp_all_1 = P_1j_gradients_q2[iElementID][i_GP];
+		temp_all_2 = P_2j_gradients_q2[iElementID][i_GP];
+		temp_all_3 = P_3j_gradients_q2[iElementID][i_GP];
+		temp_all = crack_node_vec[iCrackNodeID][0][0] *temp_all_1 + crack_node_vec[iCrackNodeID][0][1] * temp_all_2 + crack_node_vec[iCrackNodeID][0][2] *temp_all_3;
+		WK_CRACKPROP =crack_node_vec[iCrackNodeID][0][0] * tempWK[0]+crack_node_vec[iCrackNodeID][0][1] * tempWK[1]+crack_node_vec[iCrackNodeID][0][2] * tempWK[2];
+
+		//printf("J1 %lf WK %lf J1_q1 %lf J2_q2 %lf J3_q3 %lf ",temp_all,WK_CRACKPROP,J1_q1,J2_q2,J3_q3);
+		J1_Q1[iCrackNodeID] += J1_q1*J/dA;
+		J2_Q2[iCrackNodeID] += J2_q2*J/dA;
+		J3_Q3[iCrackNodeID] += J3_q3*J/dA;
+		tempJ1_all[iCrackNodeID] += temp_all*J/dA;
+		tempWK_all[iCrackNodeID] += WK_CRACKPROP*J/dA;
+
+	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+		
+	/*printf("PaiTan ( %lf %lf %lf ) DispGrad_1( %lf %lf %lf )DispGrad_2( %lf %lf %lf )DispGrad_3( %lf %lf %lf )Vector ( %lf %lf %lf ) = J3 %lf |",
+		Pai_CrackTangent[0],Pai_CrackTangent[1],Pai_CrackTangent[2],Disp_grad_1[iElementID][i_GP][0],Disp_grad_1[iElementID][i_GP][1],Disp_grad_1[iElementID][i_GP][2],
+		Disp_grad_2[iElementID][i_GP][0],Disp_grad_2[iElementID][i_GP][1],Disp_grad_2[iElementID][i_GP][2],Disp_grad_3[iElementID][i_GP][0],Disp_grad_3[iElementID][i_GP][1],
+		Disp_grad_3[iElementID][i_GP][2],
+		crack_node_vec[iCrackNodeID][0][0],crack_node_vec[iCrackNodeID][0][1],crack_node_vec[iCrackNodeID][0][2],J_temp_3rdterm);*/
+	
+	/////////////////////////////////////////////検証用//////////////////////////////////////////////////////////////temp
+	double tempGrad[3]={0};
+	double W_3rdT_temp,J_temp_3_temp;
+	tempGrad[0]=crack_node_vec[iCrackNodeID][0][0] * Disp_grad_1[iElementID][i_GP][0]
+				+ crack_node_vec[iCrackNodeID][0][1] * Disp_grad_2[iElementID][i_GP][0]
+				+ crack_node_vec[iCrackNodeID][0][2] * Disp_grad_3[iElementID][i_GP][0];
+	tempGrad[1]=crack_node_vec[iCrackNodeID][0][0] * Disp_grad_1[iElementID][i_GP][1]
+				+ crack_node_vec[iCrackNodeID][0][1] * Disp_grad_2[iElementID][i_GP][1]
+				+ crack_node_vec[iCrackNodeID][0][2] * Disp_grad_3[iElementID][i_GP][1];
+	tempGrad[2]=crack_node_vec[iCrackNodeID][0][0] * Disp_grad_1[iElementID][i_GP][2]
+				+ crack_node_vec[iCrackNodeID][0][1] * Disp_grad_2[iElementID][i_GP][2]
+				+ crack_node_vec[iCrackNodeID][0][2] * Disp_grad_3[iElementID][i_GP][2];
+	W_3rdT_temp = Pai_CrackTangent[0]*tempGrad[0] + Pai_CrackTangent[1]*tempGrad[1] + Pai_CrackTangent[2]*tempGrad[2];
+	J_temp_3_temp = W_3rdT_temp * temp_q_grad_tan;
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////	
+
+	//printf("tempGrad( %lf %lf %lf )J3temp %lf \n",tempGrad[0],tempGrad[1],tempGrad[2],J_temp_3_temp);
+	return J_temp_3rdterm;
+}
+
+/*****************************************************************************************
+								J積分本計算の本体
+*******************************************************************************************/
+void Make_J_Integral_Tetra_10(const char *fileName, char *code1, char *code2, char *code3){
+
+	double w[4] = {0.25,0.25,0.25,0.25};	
+	double Gxi[4][3]={{0.13819660112501051518,0.58541019662496845446,0.13819660112501051518},
+					 {0.13819660112501051518,0.13819660112501051518,0.13819660112501051518},
+					 {0.13819660112501051518,0.13819660112501051518,0.58541019662496845446},
+					 {0.58541019662496845446,0.13819660112501051518,0.13819660112501051518}};
+
+  	int i, j, e, n;
+  	double J = 0.0;
+  	static double B_1[D_MATRIX_SIZE][KIEL_SIZE_T10], B_2[D_MATRIX_SIZE][KIEL_SIZE_T10], B_3[D_MATRIX_SIZE][KIEL_SIZE_T10];
+  	static double X[NO_NODES_ON_ELEMENT_T10][DIMENSION];
+  	int temp_PerformFlag;
+  	FILE *fp_jint;
+  	fp_jint = fopen(fileName,"w");
+	fprintf(fp_jint,"# #Node x  y  z  J-int  J-int1  J-int2  J-int3  J-1_ejectLayer\n");
+	/*各項の数値を求めているパート*/
+  	Make_Disp_grad_2_Tetra_10();
+  	Make_1st_PK_stress();		
+  	make_Gxi_coord_Tetra_10();
+  	Make_JW();
+  	Make_W_grad_2_Tetra_10();
+  	Make_Pai_grad_2_Tetra_10();
+  	Make_disp_2grad_Tetra_10();
+  	Make_Disp_grad_2_Tetra_10_same_method();
+  	Make_Pai_Tetra_10_same_method();
+  	Make_Pai_grad_disp_grad();
+  	Make_Pai_disp_2grad();
+  	Make_grad_W_Tetra_10();
+  	Make_grad_Pai_and_disp_grad();
+  	Make_EMT();
+  	Make_second_eq_without_q();
+  	double temp_J1_1,temp_J1_2,temp_J1_3,Jtemp_1_layer,tempJ1;  ///kesuzooooooooooooooooooooooooo
+
+  	/*き裂前縁の各節点についてJ値を求めていく*/
+  	for(n=0;n<Ncrack_node;n++){
+  		printf("Center of DI: Node= %d\n""x y z coordinates:  %15.7e  %15.7e  %15.7e\n",n
+	 			,Node_Coordinate[crack_node[n]][0],Node_Coordinate[crack_node[n]][1],Node_Coordinate[crack_node[n]][2]);
+  		J_Integral_scalar1 = 0.0;
+  		J_Integral_scalar2 = 0.0;			//第一項、第二項の合計が入る
+  		J_Integral_scalar3 = 0.0;
+  		J_Integral_scalar_1_1 = 0.0;
+  		J_Integral_scalar_1_2 = 0.0;       //第一項が入る
+  		J_Integral_scalar_1_3 = 0.0;
+  		J_Integral_scalar_2_1 = 0.0;
+  		J_Integral_scalar_2_2 = 0.0;		//第二項が入る
+  		J_Integral_scalar_2_3 = 0.0;
+  		J_Integral_3rdTerm = 0.0;
+  		temp_J1_1=0.0;
+  		temp_J1_2=0.0;            //確認用、J1のVε内部の値
+  		temp_J1_3=0.0;
+
+  		printf("Crack Node\n");
+
+  		RR=atof(code1);
+  		temp_z1=atof(code2);
+  		temp_z2=atof(code3);
+
+  		Make_gradients_q2_Tetra_10(crack_node[n], n, RR, temp_z1, temp_z2,crack_node2[n]);
+  		dA = Compute_dA(n);
+  		Make_P_2j_gradients_q2();
+  		Make_second_eq();
+  		int counter_1_2=0;
+  		int counter3=0;
+
+  		int count_int=0;
+  		for( e = 0; e < NElements; e++ ){
+  			temp_PerformFlag=PerformIntegralonElement_tetra(e,Number_of_Nodes_on_Elements,n);
+    			if(temp_PerformFlag > 0){
+      			//各要素の変位を取得
+      			for( i = 0; i < NO_NODES_ON_ELEMENT_T10; i++ ){
+					for( j = 0; j < DIMENSION; j++ ){	
+	  					if(DispMode==0) X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j];
+						else if(DispMode==1) X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j] + Displacement[ ElementNodeId_s[e][i]][j]; //現在配置
+						else{printf("ERROR!! DispMode is not 0 or 1\n"); exit(1);}
+					}
+      			}
+
+					Integration_Element[n][N_Integration_Elements[n]]=e;
+					N_Integration_Elements[n]++;
+					
+      			for( i = 0; i < N_IntegrationPoint; i++ ){
+					Make_Gradient_Matrix_Tetra_10( B_1, B_2, B_3, Gxi[i], X, &J );
+
+					/********第一項,第二項計算*******/
+   					if(temp_PerformFlag ==1){
+   						J_Integral_scalar_1_1 += - J * w[i] * P_1j_gradients_q2[e][i] / dA;
+						J_Integral_scalar_1_2 += - J * w[i] * P_2j_gradients_q2[e][i] / dA;
+						J_Integral_scalar_1_3 += - J * w[i] * P_3j_gradients_q2[e][i] / dA;
+						J_Integral_scalar_2_1 += - J * w[i] * second_eq_1[e][i] / dA;
+						J_Integral_scalar_2_2 += - J * w[i] * second_eq_2[e][i] / dA;
+						J_Integral_scalar_2_3 += - J * w[i] * second_eq_3[e][i] / dA;
+						if(i==0)counter_1_2++;
+   					}
+   					if(temp_PerformFlag ==2){
+   						J_Integral_3rdTerm += J * w[i] * Make_3rd_Term_on_GaussPoint(n,e,i,dA,J) /dA;
+						temp_J1_1+= - J * w[i] * P_1j_gradients_q2[e][i] / dA;
+						temp_J1_2+= - J * w[i] * P_2j_gradients_q2[e][i] / dA;
+						temp_J1_3+= - J * w[i] * P_3j_gradients_q2[e][i] / dA;
+						tempJ1 = crack_node_vec[n][0][0]*temp_J1_1 +crack_node_vec[n][0][1]*temp_J1_2 +crack_node_vec[n][0][2]*temp_J1_3;
+						if(i==0){
+							List_of_V_ep_Elements[n][N_V_ep_Elements[n]]=e;
+							N_V_ep_Elements[n]++;
+							counter3++;
+						}
+   					}
+					count_int++;
+      			}
+				J_Integral_scalar1 = J_Integral_scalar_1_1 + J_Integral_scalar_2_1;
+				J_Integral_scalar2 = J_Integral_scalar_1_2 + J_Integral_scalar_2_2;
+				J_Integral_scalar3 = J_Integral_scalar_1_3 + J_Integral_scalar_2_3;
+			}
+    		}
+    		printf("counter ele = %d _3rd %d\n",counter_1_2,counter3 );
+
+  		J_Integral_scalar = crack_node_vec[n][0][0] * J_Integral_scalar1 + crack_node_vec[n][0][1] * J_Integral_scalar2 + crack_node_vec[n][0][2] * J_Integral_scalar3 + J_Integral_3rdTerm ;
+  		J_Integral_scalar_1 = crack_node_vec[n][0][0] * J_Integral_scalar_1_1 + crack_node_vec[n][0][1] * J_Integral_scalar_1_2 + crack_node_vec[n][0][2] * J_Integral_scalar_1_3;
+  		J_Integral_scalar_2 = crack_node_vec[n][0][0] * J_Integral_scalar_2_1 + crack_node_vec[n][0][1] * J_Integral_scalar_2_2 + crack_node_vec[n][0][2] * J_Integral_scalar_2_3;
+  		Jtemp_1_layer = crack_node_vec[n][0][0] * temp_J1_1 + crack_node_vec[n][0][1] * temp_J1_2+ crack_node_vec[n][0][2] * temp_J1_3;
+
+	  	//J_Integral_scalar = 0 * J_Integral_scalar1 + 1 * J_Integral_scalar2 + 0 * J_Integral_scalar3;
+  		//J_Integral_scalar_1 = 0 * J_Integral_scalar_1_1 + 1 * J_Integral_scalar_1_2 + 0 * J_Integral_scalar_1_3;
+  		//J_Integral_scalar_2 = 0 * J_Integral_scalar_2_1 + 1 * J_Integral_scalar_2_2 + 0 * J_Integral_scalar_2_3;
+  		//SIF = sqrt(J_Integral_scalar * E / (1.0 - nu*nu));
+  		//printf("Total number of elements integrations were perfromed: %d\n",count_int);
+  		//		printf("\ndA = %lf\n",dA);
+  		//		printf("¥nJ_Integral_scalar = %21.20e¥n",J_Integral_scalar);
+
+  		//printf("x-coord value and J %le	%21.20e\n",Node_Coordinate[crack_node[n]][0],J_Integral_scalar);
+  		//printf("x-coord value and J %10.3e  %15.7e  %15.7e  %15.7e  %15.7e\n",Node_Coordinate[crack_node[n]][0],J_Integral_scalar,J_Integral_scalar1,J_Integral_scalar2,J_Integral_scalar3);
+  		fprintf(fp_jint,"%d %d  %10.3e  %10.3e  %10.3e %15.7e %15.7e %15.7e %15.7e %15.7e | %15.7e %15.7e %15.7e %15.7e %15.7e |\n",n, crack_node[n],
+  			Node_Coordinate[crack_node[n]][0],Node_Coordinate[crack_node[n]][1],
+ 	 		Node_Coordinate[crack_node[n]][2],J_Integral_scalar, J_Integral_scalar_1, J_Integral_scalar_2,J_Integral_3rdTerm,Jtemp_1_layer,J1_Q1[n], J2_Q2[n],J3_Q3[n],tempJ1_all[n],tempWK_all[n]);
+  		//fprintf(fp_jint,"%15.7e %15.7e %15.7e\n%15.7e %15.7e %15.7e\n",
+  		//J_Integral_scalar_1_1, J_Integral_scalar_1_2, J_Integral_scalar_1_3,
+  		//J_Integral_scalar_2_1, J_Integral_scalar_2_2, J_Integral_scalar_2_3);
+  	}
+  	fclose(fp_jint);
+}
+
+void Make_J_Integral_Hexa_8(const char *fileName, char *code1, char *code2, char *code3){
+
+	double w[8] = {1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0};	
+	double Gxi[8][3]=	{{-0.57735026918962584208,-0.57735026918962584208,-0.57735026918962584208},
+					 { 0.57735026918962584208,-0.57735026918962584208,-0.57735026918962584208},
+					 {-0.57735026918962584208, 0.57735026918962584208,-0.57735026918962584208},
+					 { 0.57735026918962584208, 0.57735026918962584208,-0.57735026918962584208},
+					 {-0.57735026918962584208,-0.57735026918962584208, 0.57735026918962584208},
+					 { 0.57735026918962584208,-0.57735026918962584208, 0.57735026918962584208},
+					 {-0.57735026918962584208, 0.57735026918962584208, 0.57735026918962584208},
+					 { 0.57735026918962584208, 0.57735026918962584208, 0.57735026918962584208}};
+
+  	int i, j, e, n;
+  	double J = 0.0;
+  	static double B_1[D_MATRIX_SIZE][KIEL_SIZE_H8], B_2[D_MATRIX_SIZE][KIEL_SIZE_H8], B_3[D_MATRIX_SIZE][KIEL_SIZE_H8];
+  	static double X[NO_NODES_ON_ELEMENT_H8][DIMENSION];
+  	int temp_PerformFlag;
+  	FILE *fp_jint;
+  	fp_jint = fopen(fileName,"w");
+	fprintf(fp_jint,"# #Node x  y  z  J-int  J-int1  J-int2  J-int3 J-1_ejectLayer\n");
+	/*各項の数値を求めているパート*/
+  	Make_Disp_grad_2_Hexa_8();
+  	Make_1st_PK_stress();		
+  	make_Gxi_coord_Hexa_8();
+  	Make_JW();
+  	Make_W_grad_2_Hexa_8();
+  	Make_Pai_grad_2_Hexa_8();
+  	Make_disp_2grad_Hexa_8();
+  	Make_Disp_grad_2_Hexa_8_same_method();
+  	Make_Pai_Hexa_8_same_method();
+  	Make_Pai_grad_disp_grad();
+  	Make_Pai_disp_2grad();
+  	Make_grad_W_Hexa_8();
+  	Make_grad_Pai_and_disp_grad();
+  	Make_EMT();
+  	Make_second_eq_without_q();
+
+  	double temp_J1_1,temp_J1_2,temp_J1_3,Jtemp_1_layer,tempJ1;  ///kesuzooooooooooooooooooooooooo
+
+  	/*き裂前縁の各節点についてJ値を求めていく*/
+  	for(n=0;n<Ncrack_node;n++){
+  		printf("Center of DI: Node= %d\n""x y z coordinates:  %15.7e  %15.7e  %15.7e\n",n
+	 			,Node_Coordinate[crack_node[n]][0],Node_Coordinate[crack_node[n]][1],Node_Coordinate[crack_node[n]][2]);
+  		J_Integral_scalar1 = 0.0;
+  		J_Integral_scalar2 = 0.0;			//第一項、第二項の合計が入る
+  		J_Integral_scalar3 = 0.0;
+  		J_Integral_scalar_1_1 = 0.0;
+  		J_Integral_scalar_1_2 = 0.0;       //第一項が入る
+  		J_Integral_scalar_1_3 = 0.0;
+  		J_Integral_scalar_2_1 = 0.0;
+  		J_Integral_scalar_2_2 = 0.0;		//第二項が入る
+  		J_Integral_scalar_2_3 = 0.0;
+  		J_Integral_3rdTerm = 0.0;
+
+  		temp_J1_1=0.0;
+  		temp_J1_2=0.0;            //kesuzoooooooooooooooooooooo
+  		temp_J1_3=0.0;
+
+  		printf("Crack Node\n");
+
+  		RR=atof(code1);
+  		temp_z1=atof(code2) - 0.0000000001;
+  		temp_z2=atof(code3);
+
+  		Make_gradients_q2_Hexa_8(crack_node[n], n, RR, temp_z1, temp_z2,crack_node2[n]);
+  		dA = Compute_dA(n);
+  		//printf("dA=%lf\n",dA );
+  		Make_P_2j_gradients_q2();
+  		Make_second_eq();
+
+  		int count_int=0;
+  		for( e = 0; e < NElements; e++ ){
+  			temp_PerformFlag=PerformIntegralonElement_Hexa(e,Number_of_Nodes_on_Elements,n);
+    			if(temp_PerformFlag > 0){
+      			//各要素の変位を取得
+      			for( i = 0; i < NO_NODES_ON_ELEMENT_H8; i++ ){
+      				//printf("%lf ",q2[ElementNodeId_s[e][i]]);
+					for( j = 0; j < DIMENSION; j++ ){	
+	  					if(DispMode==0) X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j];
+						else if(DispMode==1) X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j] + Displacement[ ElementNodeId_s[e][i]][j]; //現在配置
+						else{printf("ERROR!! DispMode is not 0 or 1\n"); exit(1);}
+					}
+      			}
+
+				Integration_Element[n][N_Integration_Elements[n]]=e;
+				N_Integration_Elements[n]++;
+
+      			for( i = 0; i < N_IntegrationPoint; i++ ){			
+					Make_Gradient_Matrix_Hexa_8( B_1, B_2, B_3, Gxi[i], X, &J );
+					
+  	 				if(temp_PerformFlag ==1){
+						J_Integral_scalar_1_1 += - J * w[i] * P_1j_gradients_q2[e][i] / dA;
+						J_Integral_scalar_1_2 += - J * w[i] * P_2j_gradients_q2[e][i] / dA;
+						J_Integral_scalar_1_3 += - J * w[i] * P_3j_gradients_q2[e][i] / dA;
+						J_Integral_scalar_2_1 += - J * w[i] * second_eq_1[e][i] / dA;
+						J_Integral_scalar_2_2 += - J * w[i] * second_eq_2[e][i] / dA;
+						J_Integral_scalar_2_3 += - J * w[i] * second_eq_3[e][i] / dA;
+					}
+					else if(temp_PerformFlag ==2){
+						J_Integral_3rdTerm += J * w[i] * Make_3rd_Term_on_GaussPoint(n,e,i,dA,J) /dA;
+						temp_J1_1+= - J * w[i] * P_1j_gradients_q2[e][i] / dA;
+						temp_J1_2+= - J * w[i] * P_2j_gradients_q2[e][i] / dA;
+						temp_J1_3+= - J * w[i] * P_3j_gradients_q2[e][i] / dA;
+						tempJ1 = crack_node_vec[n][0][0]*temp_J1_1 +crack_node_vec[n][0][1]*temp_J1_2 +crack_node_vec[n][0][2]*temp_J1_3;
+						if(i==0){
+							List_of_V_ep_Elements[n][N_V_ep_Elements[n]]=e;
+							N_V_ep_Elements[n]++;
+						}
+					} 					
+					count_int++;
+      			}
+
+				J_Integral_scalar1 = J_Integral_scalar_1_1 + J_Integral_scalar_2_1;
+				J_Integral_scalar2 = J_Integral_scalar_1_2 + J_Integral_scalar_2_2;
+				J_Integral_scalar3 = J_Integral_scalar_1_3 + J_Integral_scalar_2_3;
+			}
+    		}
+
+  		J_Integral_scalar = crack_node_vec[n][0][0] * J_Integral_scalar1 + crack_node_vec[n][0][1] * J_Integral_scalar2 + crack_node_vec[n][0][2] * J_Integral_scalar3 + J_Integral_3rdTerm;
+  		J_Integral_scalar_1 = crack_node_vec[n][0][0] * J_Integral_scalar_1_1 + crack_node_vec[n][0][1] * J_Integral_scalar_1_2 + crack_node_vec[n][0][2] * J_Integral_scalar_1_3;
+  		J_Integral_scalar_2 = crack_node_vec[n][0][0] * J_Integral_scalar_2_1 + crack_node_vec[n][0][1] * J_Integral_scalar_2_2 + crack_node_vec[n][0][2] * J_Integral_scalar_2_3;
+  		Jtemp_1_layer = crack_node_vec[n][0][0] * temp_J1_1 + crack_node_vec[n][0][1] * temp_J1_2+ crack_node_vec[n][0][2] * temp_J1_3;
+
+	  	//J_Integral_scalar = 0 * J_Integral_scalar1 + 1 * J_Integral_scalar2 + 0 * J_Integral_scalar3;
+  		//J_Integral_scalar_1 = 0 * J_Integral_scalar_1_1 + 1 * J_Integral_scalar_1_2 + 0 * J_Integral_scalar_1_3;
+  		//J_Integral_scalar_2 = 0 * J_Integral_scalar_2_1 + 1 * J_Integral_scalar_2_2 + 0 * J_Integral_scalar_2_3;
+  		//SIF = sqrt(J_Integral_scalar * E / (1.0 - nu*nu));
+  		//printf("Total number of elements integrations were perfromed: %d\n",count_int);
+  		//		printf("\ndA = %lf\n",dA);
+  		//		printf("¥nJ_Integral_scalar = %21.20e¥n",J_Integral_scalar);
+
+  		//printf("x-coord value and J %le	%21.20e\n",Node_Coordinate[crack_node[n]][0],J_Integral_scalar);
+  		//printf("x-coord value and J %10.3e  %15.7e  %15.7e  %15.7e  %15.7e\n",Node_Coordinate[crack_node[n]][0],J_Integral_scalar,J_Integral_scalar1,J_Integral_scalar2,J_Integral_scalar3);
+  		fprintf(fp_jint,"%d %d  %10.3e  %10.3e  %10.3e %15.7e %15.7e %15.7e %15.7e %15.7e | %15.7e %15.7e %15.7e %15.7e %15.7e |\n",n, crack_node[n],
+  			Node_Coordinate[crack_node[n]][0],Node_Coordinate[crack_node[n]][1],
+ 	 		Node_Coordinate[crack_node[n]][2],J_Integral_scalar, J_Integral_scalar_1, J_Integral_scalar_2,J_Integral_3rdTerm,Jtemp_1_layer,J1_Q1[n], J2_Q2[n],J3_Q3[n],tempJ1_all[n],tempWK_all[n]);
+  		//fprintf(fp_jint,"%15.7e %15.7e %15.7e\n%15.7e %15.7e %15.7e\n",
+  		//J_Integral_scalar_1_1, J_Integral_scalar_1_2, J_Integral_scalar_1_3,
+  		//J_Integral_scalar_2_1, J_Integral_scalar_2_2, J_Integral_scalar_2_3);
+  	}
+  	fclose(fp_jint);
+}
+
+void Make_J_Integral_Tetra_4(const char *fileName, char *code1, char *code2, char *code3){
+
+	double w[1] = {1};	
+	double Gxi[1][3]={0.25,0.25,0.25};
+
+  	int i, j, e, n;
+  	double J = 0.0;
+  	static double B_1[D_MATRIX_SIZE][KIEL_SIZE_T4], B_2[D_MATRIX_SIZE][KIEL_SIZE_T4], B_3[D_MATRIX_SIZE][KIEL_SIZE_T4];
+  	static double X[NO_NODES_ON_ELEMENT_T4][DIMENSION];
+  	int temp_PerformFlag;
+  	FILE *fp_jint;
+  	fp_jint = fopen(fileName,"w");
+	fprintf(fp_jint,"# #Node x  y  z  J-int  J-int1  J-int2  J-int3\n");
+	/*各項の数値を求めているパート*/
+  	Make_Disp_grad_2_Tetra_4();
+  	Make_1st_PK_stress();		
+  	make_Gxi_coord_Tetra_4();
+  	Make_JW();
+  	Make_W_grad_2_Tetra_4();
+  	Make_Pai_grad_2_Tetra_4();
+  	Make_disp_2grad_Tetra_4();
+  	Make_Disp_grad_2_Tetra_4_same_method();
+  	Make_Pai_Tetra_4_same_method();
+  	Make_Pai_grad_disp_grad();
+  	Make_Pai_disp_2grad();
+  	Make_grad_W_Tetra_4();
+  	Make_grad_Pai_and_disp_grad();
+  	Make_EMT();
+  	Make_second_eq_without_q();
+  	double temp_J1_1,temp_J1_2,temp_J1_3,Jtemp_1_layer,tempJ1;  ///kesuzooooooooooooooooooooooooo
+
+  	/*き裂前縁の各節点についてJ値を求めていく*/
+  	for(n=0;n<Ncrack_node;n++){
+  		printf("Center of DI: Node= %d\n""x y z coordinates:  %15.7e  %15.7e  %15.7e\n",n
+	 			,Node_Coordinate[crack_node[n]][0],Node_Coordinate[crack_node[n]][1],Node_Coordinate[crack_node[n]][2]);
+  		J_Integral_scalar1 = 0.0;
+  		J_Integral_scalar2 = 0.0;			//第一項、第二項の合計が入る
+  		J_Integral_scalar3 = 0.0;
+  		J_Integral_scalar_1_1 = 0.0;
+  		J_Integral_scalar_1_2 = 0.0;       //第一項が入る
+  		J_Integral_scalar_1_3 = 0.0;
+  		J_Integral_scalar_2_1 = 0.0;
+  		J_Integral_scalar_2_2 = 0.0;		//第二項が入る
+  		J_Integral_scalar_2_3 = 0.0;
+  		J_Integral_3rdTerm = 0.0;
+
+  		temp_J1_1=0.0;
+  		temp_J1_2=0.0;            //kesuzoooooooooooooooooooooo
+  		temp_J1_3=0.0;
+
+  		printf("Crack Node\n");
+
+  		RR=atof(code1);
+  		temp_z1=atof(code2);
+  		temp_z2=atof(code3);
+
+  		Make_gradients_q2_Tetra_4(crack_node[n], n, RR, temp_z1, temp_z2, crack_node2[n]);
+  		dA = Compute_dA(n);
+  		Make_P_2j_gradients_q2();
+  		Make_second_eq();
+
+  		int count_int=0;
+  		for( e = 0; e < NElements; e++ ){
+  			temp_PerformFlag=PerformIntegralonElement_tetra(e,Number_of_Nodes_on_Elements,n);
+    			if(temp_PerformFlag > 0){
+      			//各要素の変位を取得
+      			for( i = 0; i < NO_NODES_ON_ELEMENT_T4; i++ ){
+					for( j = 0; j < DIMENSION; j++ ){	
+	  					if(DispMode==0) X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j];
+						else if(DispMode==1) X[i][j] = Node_Coordinate[ ElementNodeId_s[e][i] ][j] + Displacement[ ElementNodeId_s[e][i]][j]; //現在配置
+						else{printf("ERROR!! DispMode is not 0 or 1\n"); exit(1);}
+					}
+      			}
+
+      			Integration_Element[n][N_Integration_Elements[n]]=e;
+				N_Integration_Elements[n]++;
+
+      			for( i = 0; i < N_IntegrationPoint; i++ ){
+						
+					Make_Gradient_Matrix_Tetra_4( B_1, B_2, B_3, Gxi[i], X, &J );
+
+					if(temp_PerformFlag ==1){  //き裂前縁から一個目の要素は積分に含まない
+						J_Integral_scalar_1_1 += - J * w[i] * P_1j_gradients_q2[e][i] / dA;
+						J_Integral_scalar_1_2 += - J * w[i] * P_2j_gradients_q2[e][i] / dA;
+						J_Integral_scalar_1_3 += - J * w[i] * P_3j_gradients_q2[e][i] / dA;
+						J_Integral_scalar_2_1 += - J * w[i] * second_eq_1[e][i] / dA;
+						J_Integral_scalar_2_2 += - J * w[i] * second_eq_2[e][i] / dA;
+						J_Integral_scalar_2_3 += - J * w[i] * second_eq_3[e][i] / dA;
+					}
+					else if(temp_PerformFlag ==2){
+						J_Integral_3rdTerm += J * w[i] * Make_3rd_Term_on_GaussPoint(n,e,i,dA,J) /dA;
+						temp_J1_1+= - J * w[i] * P_1j_gradients_q2[e][i] / dA;
+						temp_J1_2+= - J * w[i] * P_2j_gradients_q2[e][i] / dA;
+						temp_J1_3+= - J * w[i] * P_3j_gradients_q2[e][i] / dA;
+						tempJ1 = crack_node_vec[n][0][0]*temp_J1_1 +crack_node_vec[n][0][1]*temp_J1_2 +crack_node_vec[n][0][2]*temp_J1_3;
+						if(i==0){
+							List_of_V_ep_Elements[n][N_V_ep_Elements[n]]=e;
+							N_V_ep_Elements[n]++;
+						}
+   					} 					
+					count_int++;
+      			}
+				J_Integral_scalar1 = J_Integral_scalar_1_1 + J_Integral_scalar_2_1;
+				J_Integral_scalar2 = J_Integral_scalar_1_2 + J_Integral_scalar_2_2;
+				J_Integral_scalar3 = J_Integral_scalar_1_3 + J_Integral_scalar_2_3;
+			}
+    		}
+
+  		J_Integral_scalar = crack_node_vec[n][0][0] * J_Integral_scalar1 + crack_node_vec[n][0][1] * J_Integral_scalar2 + crack_node_vec[n][0][2] * J_Integral_scalar3 +J_Integral_3rdTerm;
+  		J_Integral_scalar_1 = crack_node_vec[n][0][0] * J_Integral_scalar_1_1 + crack_node_vec[n][0][1] * J_Integral_scalar_1_2 + crack_node_vec[n][0][2] * J_Integral_scalar_1_3;
+  		J_Integral_scalar_2 = crack_node_vec[n][0][0] * J_Integral_scalar_2_1 + crack_node_vec[n][0][1] * J_Integral_scalar_2_2 + crack_node_vec[n][0][2] * J_Integral_scalar_2_3;
+  		Jtemp_1_layer = crack_node_vec[n][0][0] * temp_J1_1 + crack_node_vec[n][0][1] * temp_J1_2+ crack_node_vec[n][0][2] * temp_J1_3;
+	  	//J_Integral_scalar = 0 * J_Integral_scalar1 + 1 * J_Integral_scalar2 + 0 * J_Integral_scalar3;
+  		//J_Integral_scalar_1 = 0 * J_Integral_scalar_1_1 + 1 * J_Integral_scalar_1_2 + 0 * J_Integral_scalar_1_3;
+  		//J_Integral_scalar_2 = 0 * J_Integral_scalar_2_1 + 1 * J_Integral_scalar_2_2 + 0 * J_Integral_scalar_2_3;
+  		//SIF = sqrt(J_Integral_scalar * E / (1.0 - nu*nu));
+  		//printf("Total number of elements integrations were perfromed: %d\n",count_int);
+  		//		printf("\ndA = %lf\n",dA);
+  		//		printf("¥nJ_Integral_scalar = %21.20e¥n",J_Integral_scalar);
+
+  		//printf("x-coord value and J %le	%21.20e\n",Node_Coordinate[crack_node[n]][0],J_Integral_scalar);
+  		//printf("x-coord value and J %10.3e  %15.7e  %15.7e  %15.7e  %15.7e\n",Node_Coordinate[crack_node[n]][0],J_Integral_scalar,J_Integral_scalar1,J_Integral_scalar2,J_Integral_scalar3);
+
+  		fprintf(fp_jint,"%d %d  %10.3e  %10.3e  %10.3e %15.7e %15.7e %15.7e %15.7e %15.7e | %15.7e %15.7e %15.7e %15.7e %15.7e |\n",n, crack_node[n],
+  			Node_Coordinate[crack_node[n]][0],Node_Coordinate[crack_node[n]][1],
+ 	 		Node_Coordinate[crack_node[n]][2],J_Integral_scalar, J_Integral_scalar_1, J_Integral_scalar_2,J_Integral_3rdTerm,Jtemp_1_layer,J1_Q1[n], J2_Q2[n],J3_Q3[n],tempJ1_all[n],tempWK_all[n]);
+  		//fprintf(fp_jint,"%15.7e %15.7e %15.7e\n%15.7e %15.7e %15.7e\n",
+  		//J_Integral_scalar_1_1, J_Integral_scalar_1_2, J_Integral_scalar_1_3,
+  		//J_Integral_scalar_2_1, J_Integral_scalar_2_2, J_Integral_scalar_2_3);
+  	}
+  	fclose(fp_jint);
+}
+/**************************************************************
+                     テスト用データ出力系
+*************************************************************/
+//越間変更点//
+int Output_Stress_Data(){
+  	int i,j,k,l;
+  	FILE *fp;
+	fp = fopen("test_Stress", "w");
+
+	//応力
+	for( i = 0; i < NElements; i++ ){
+	    	for( k = 0; k < N_IntegrationPoint; k++){
+		  	for( j = 0; j < DIMENSION; j++ ){
+		    		for( l = 0; l < DIMENSION; l++ ){
+		      		fprintf(fp,"%le\t",Stress[i][k][j][l]);
+		      		if(l==2) fprintf(fp,"\n");
+			     }
+		    	}
+			fprintf(fp,"\n");
+		}
+	}	
+  	fclose(fp);
+}
+
+int Output_Disp_grad_Data(){
+
+  	int i;
+ 	int N,e;
+  	FILE *fp;
+	fp = fopen("test_Disp_grad", "w");
+	
+	for( e = 0; e < NElements; e++ ){
+		for( N = 0; N < N_IntegrationPoint; N++ ){
+		  	for( i = 0; i < DIMENSION; i++ ){
+			  	fprintf(fp,"%le %le %le\n", Disp_grad_1[e][N][i], Disp_grad_2[e][N][i], Disp_grad_3[e][N][i]);
+ 				if(i==2) fprintf(fp,"\n");
+		  	}
+		}	
+	}	
+  	fclose(fp);
+}
+
+int Output_Def_grad_Data(){
+  	int i,j;
+  	int N,e;
+  	FILE *fp;
+  	fp = fopen("test_Def_grad", "w");
+
+  	for( e = 0; e < NElements; e++ ){
+    		for( N = 0; N < N_IntegrationPoint; N++ ){
+      		for( i = 0; i < DIMENSION; i++ ){
+				for( j = 0; j < DIMENSION; j++ ){
+	  				fprintf(fp,"%le ", Def_grad[e][N][i][j]);
+	  				if(j==2) fprintf(fp,"\n");
+				}
+				if(i==2) fprintf(fp,"\n");
+      		}
+    		}
+  	}		
+  	fclose(fp);
+}
+
+int Output_Def_grad_In_Data(){
+  	int i,j;
+  	int N,e;
+  	FILE *fp;
+  	fp = fopen("test_Def_grad_In", "w");
+  	for( e = 0; e < NElements; e++ ){
+    		for( N = 0; N < N_IntegrationPoint; N++ ){
+      		for( i = 0; i < DIMENSION; i++ ){
+				for( j = 0; j < DIMENSION; j++ ){
+	  				fprintf(fp,"%le ", Def_grad_In[e][N][i][j]);
+	  				if(j==2) fprintf(fp,"\n");
+				}
+				if(i==2) fprintf(fp,"\n");
+      		}
+    		}
+  	}		
+  	fclose(fp);
+}
+
+int Output_I(){
+  	int i,j;
+  	int N,e;
+  	FILE *fp;
+  	fp = fopen("test_I", "w");
+
+  	for( e = 0; e < NElements; e++ ){
+    		for( N = 0; N < N_IntegrationPoint; N++ ){
+      		for( i = 0; i < DIMENSION; i++ ){
+				for( j = 0; j < DIMENSION; j++ ){
+	  				fprintf(fp,"%le ", I[e][N][i][j]);
+	  				if(j==2) fprintf(fp,"\n");
+				}
+				if(i==2) fprintf(fp,"\n");
+      		}
+       	}
+  	}	
+  	fclose(fp);
+}
+
+int Output_Pai_Data(){
+  	int i,j;
+ 	int N,e;
+  	FILE *fp;
+  	fp = fopen("test_Pai", "w");
+
+  	for( e = 0; e < NElements; e++ ){
+    		for( N = 0; N < N_IntegrationPoint; N++ ){
+      		for( i = 0; i < DIMENSION; i++ ){
+				for( j = 0; j < DIMENSION; j++ ){
+	 	 			fprintf(fp,"%le ", Pai[e][N][i][j]);
+	  				if(j==2) fprintf(fp,"\n");
+				}
+				if(i==2) fprintf(fp,"\n");
+      		}
+    		}
+  	}	
+  	fclose(fp);
+}
+//新規追加関数、H8要素の時にVεの領域を決定する
+void detect_crackElement_length_H8(){
+	int iElement;
+	int iNode,jNode,temp;
+	int tempnodeID[8];
+	int counter;
+	int tempSurfaceNODEID[4];
+	double tempLength[6];
+	double tempVec[6][3];
+	int i,j,k;
+	double temp_d[10],tempave=0;
+	int count_ele=0;
+	int temp_NID[2];
+
+	temp_NID[0]=CrackFrontSegments_For_Jint[0][0][0];
+	temp_NID[1]=CrackFrontSegments_For_Jint[NCrack_Front-1][Crack_N_Segments[0]-1][1];
+	printf("detect Node =%d (%lf %lf %lf)\n",temp_NID[0],Node_Coordinate[temp_NID[0]][0],Node_Coordinate[temp_NID[0]][1],Node_Coordinate[temp_NID[0]][2] );
+	printf("detect Node2 =%d (%lf %lf %lf)\n",temp_NID[1],Node_Coordinate[temp_NID[1]][0],Node_Coordinate[temp_NID[1]][1],Node_Coordinate[temp_NID[1]][2] );
+	for(k=0;k<2;k++){
+		temp=temp_NID[k];	
+		for(iElement=0;iElement<NElements;iElement++){
+			counter=0;
+			for(iNode=0;iNode<Number_of_Nodes_on_Elements;iNode++){
+				if(ElementNodeId_s[iElement][iNode]==temp){
+					printf("----------------------\n");
+					for(i=0;i<5;i++){
+						tempLength[i]=0;
+						tempVec[i][0]=0;
+						tempVec[i][1]=0;
+						tempVec[i][2]=0;
+					}
+					for(jNode=0;jNode<Number_of_Nodes_on_Elements;jNode++){
+						tempnodeID[jNode]=ElementNodeId_s[iElement][jNode];
+						if(Surface_flag[tempnodeID[jNode]]==1){
+							tempSurfaceNODEID[counter]=tempnodeID[jNode];
+							counter++;
+						}
+					}
+					if(counter==4){
+						for(i=0;i<DIMENSION;i++){
+							tempVec[0][i]=Node_Coordinate[tempSurfaceNODEID[1]][i]-Node_Coordinate[tempSurfaceNODEID[0]][i];
+							tempVec[1][i]=Node_Coordinate[tempSurfaceNODEID[2]][i]-Node_Coordinate[tempSurfaceNODEID[0]][i];
+							tempVec[2][i]=Node_Coordinate[tempSurfaceNODEID[3]][i]-Node_Coordinate[tempSurfaceNODEID[0]][i];
+							tempVec[3][i]=Node_Coordinate[tempSurfaceNODEID[3]][i]-Node_Coordinate[tempSurfaceNODEID[1]][i];
+							tempVec[4][i]=Node_Coordinate[tempSurfaceNODEID[3]][i]-Node_Coordinate[tempSurfaceNODEID[2]][i];
+							tempVec[5][i]=Node_Coordinate[tempSurfaceNODEID[2]][i]-Node_Coordinate[tempSurfaceNODEID[1]][i];
+						}
+						for(i=0;i<6;i++){
+							tempLength[i]=sqrt(tempVec[i][0]*tempVec[i][0]+tempVec[i][1]*tempVec[i][1]+tempVec[i][2]*tempVec[i][2]);
+						}
+						temp_d[count_ele]=tempLength[0];
+						for(i=0;i<5;i++){
+							if(temp_d[count_ele]<tempLength[i+1]){
+								temp_d[count_ele]=tempLength[i+1];
+							}
+						}
+
+						printf("NodeID(%d %d %d %d) Length(%lf %lf %lf %lf %lf %lf) MaxLength=%lf\n", tempSurfaceNODEID[0],tempSurfaceNODEID[1],tempSurfaceNODEID[2],tempSurfaceNODEID[3],
+							tempLength[0],tempLength[1],tempLength[2],tempLength[3],tempLength[4],tempLength[5],temp_d[count_ele]);
+						count_ele++;
+					}	
+				}
+			}
+		}
+	}
+
+	for(j=0;j<count_ele;j++){
+		tempave += temp_d[j];
+		//printf("%lf %lf\n",tempave,temp_d[j] );
+	}
+	Ave_CrackFrontMeshLength_H8 = tempave/count_ele;
+	printf("Ve area r0 = %lf \n",Ave_CrackFrontMeshLength_H8);
+}
+
+//可視化用、このあとプログラムを通して任意のき裂前縁上の点の値を可視化できる。
+void Oudput_Integration_Elements_List(){
+	FILE *fp;
+  	fp = fopen("Integration_Elements_List.out", "w");
+  	int n,iElement;
+
+  	fprintf(fp,"CrackFrontNodes = %d \n",Ncrack_node);
+  	fprintf(fp,"Number of Elements = %d \n",NElements);
+  	for(n=0;n<Ncrack_node;n++){
+  		fprintf(fp,"%d\n",N_Integration_Elements[n]);
+  		for(iElement=0;iElement<N_Integration_Elements[n];iElement++){
+  			fprintf(fp,"%d ",Integration_Element[n][iElement]);
+  		}
+  		fprintf(fp,"\n");
+  		fprintf(fp,"%d\n",N_V_ep_Elements[n]);
+  		for(iElement=0;iElement<N_V_ep_Elements[n];iElement++){
+  			fprintf(fp,"%d ",List_of_V_ep_Elements[n][iElement]);
+  		}
+  		fprintf(fp,"\n");
+  	}
+  	fclose(fp);
+}
+
+void Oudput_q_List(const char *fileName){
+	FILE *fp;
+  	fp = fopen(fileName, "w");
+	int i,j,n;
+	
+	fprintf(fp,"%d\n",NNodes);
+	for(n=0;n<Ncrack_node;n++){
+		for(i=0;i<NNodes;i++){
+			fprintf(fp,"%lf\n",q2[i][n]);
+		}
+	}
+
+	for(n=0;n<Ncrack_node;n++){
+		fprintf(fp,"%d\n",N_V_ep_Elements[n]);
+		for(j=0;j<N_V_ep_Elements[n];j++){
+			fprintf(fp,"%d\n",List_of_V_ep_Elements[n][j]); 
+		}
+	}
+
+
+	fclose(fp);
+}
+
+
+
+//main//
+int main (int argc, char *argv[])
+{
+
+  	double EE, Nu;
+  	if (argc != 18) {
+    		fprintf (stderr, 
+	     	" Usage : \n"
+	     	" ADVENTURE_J-InteralV* msh_file(input)\n"
+	     	" CrackFrontData(input) Surface_Flag_Data(input)\n"
+	     	"J-Integral_DATA(stress,strain,etc:input)\n"
+	     	"material data (input) J-integral_result(output)\n"
+	     	" RR z1 z2\n"
+	     	"deform second_eq_type method case_type\n\n");
+   		 exit (1);
+  	}
+
+  	/***積分領域の範囲設定***/
+  	printf("-----------------------------------------------------------------\n[Integration Area]\n");
+  	float RR, z1, z2;
+  	RR = atof(argv[8]);
+ 	printf("RR=%lf\n",RR);
+  	z1 = atof(argv[9]);
+  	printf("z1=%lf\n",z1);
+  	z2 = atof(argv[10]);
+  	printf("z2=%lf\n",z2);
+
+  	/***解析モードの選択***/
+  	printf("-----------------------------------------------------------------\n[Selected Option]\n");
+
+
+  	deform = atoi(argv[11]);
+   	if(deform==1)printf("\ndeform=         %d small deformation\n",deform);
+   	else if(deform==2)printf("\ndeform=         %d large deformation\n",deform);
+   	else {printf("\nERROR!! deform data argv[11] miss\n\n"); exit(1);}
+
+  	second_eq_type = atoi(argv[12]);
+   	if(second_eq_type==1)printf("second_eq_type= %d separate\n",second_eq_type);
+   	else if(second_eq_type==2)printf("second_eq_type= %d separate_without_paigrad\n",second_eq_type);
+   	else if(second_eq_type==3)printf("second_eq_type= %d all\n",second_eq_type);
+   	else {printf("\nERROR!! second_eq_type data argv[12] miss\n\n"); exit(1);}
+
+  	method = atoi(argv[13]);
+   	if(method==1)printf("method=         %d gauss data\n",method);
+   	else if(method==2)printf("method=         %d nodal data\n",method);
+   	else {printf("\nERROR!! method data argv[13] miss\n\n"); exit(1);}
+
+   	V_ep_radius = atof(argv[14]);
+   	printf("Vep Radius = %lf mm\n",V_ep_radius);
+
+
+   	DispMode = atoi(argv[15]); ///Formurationcheckバージョンと統合のためのヤツ
+   	if(DispMode==0)printf("DispMode=         %d ,NormalMode\n",DispMode);
+   	else if(DispMode==1)printf("DispMode=         %d FormulationCheckMode\n",DispMode);
+   	else {printf("\nERROR!! DispMode data argv[15] miss\n\n"); exit(1);}
+
+  	if(method==2 && second_eq_type==3){printf("\nERROR!! can not use this pattern  [method=2 and second_eq_type=3]\n\n"); exit(1);}
+
+  	/***メッシュデータ読み込み***/
+	printf("-----------------------------------------------------------------\n[Mesh Property]\n");
+	ReadFgr(argv[2]);
+	read_file_msh(argv[1]);
+	printf("Number of Elements =%d\nNumber of Nodes=%d\n",NElements,NNodes);
+
+	/***応力、変位勾配等の読み込み（Pre Jで計算したデータとFEMの解析結果）***/
+	printf("-----------------------------------------------------------------\n[Read FEM Result & Pre J-Integral Data]\n");
+	Get_InputData_from_FEM(argv[5]);
+	Get_InputData_W_on_Node();
+	Get_InputData_Pai_on_Node();
+	Get_InputData_Disp_grad_1_on_Node();
+	Get_InputData_Disp_grad_2_on_Node();
+	Get_InputData_Disp_grad_3_on_Node();
+	if(second_eq_type==3){
+	  	Get_InputData_W_1_on_Node();
+	  	Get_InputData_W_2_on_Node();
+	  	Get_InputData_W_3_on_Node();
+	}
+
+	/***J積分インプットの読み込み。（き裂前縁の局所座標系のデータ等）***/
+	printf("-----------------------------------------------------------------\n[Read J-Integral Input Data]\n");
+	reading_J_DI_input_data(argv[3], argv[16]);
+	writing_J_DI_input_data();
+	read_surface_flag(argv[4]);
+	settingCrackFrontNode();
+	
+
+	/***J積分本計算***/
+	printf("-----------------------------------------------------------------\n[Compute J-Integral]\n");	
+	material_data(argv[6], &EE, &Nu);
+	E = EE; nu = Nu;
+	make_mesh_size();
+	switch(Number_of_Nodes_on_Elements){
+		case 4:{
+			Make_J_Integral_Tetra_4(argv[7], argv[8], argv[9], argv[10]);
+			break;
+		}
+		case 10:{
+			Make_J_Integral_Tetra_10(argv[7], argv[8], argv[9], argv[10]);
+			break;
+		}
+		case 8:{
+			detect_crackElement_length_H8();
+			Make_J_Integral_Hexa_8(argv[7], argv[8], argv[9], argv[10]);
+			break;
+		}
+		case 20:{
+			printf("H20 Mode is In development\n");
+			break;
+		}
+	}
+	Oudput_Integration_Elements_List();
+	Oudput_q_List(argv[17]);
+	printf("J-integral computation ended\n");
+	//Make_Output();
+}
+

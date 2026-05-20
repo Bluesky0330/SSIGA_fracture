@@ -1,0 +1,269 @@
+PROGRAM_NAME	= SIGA
+
+NUMACTL := $(shell numactl --hardware > /dev/null 2>&1 && echo numactl --localalloc || echo "")
+PERF    := $(shell perf --version > /dev/null 2>&1 && echo perf stat -dd || echo "")
+
+# compile
+compile:
+	cd ./src && make -f Make_src
+
+# compile
+compile_optimized:
+	cd ./src_fast && ./build.sh
+
+# crack
+crack: compile rm mkdir_output
+	cd ./analysis/material && ./cp.sh ./option_crack_IGA_elast.ini
+	cd ./analysis/output   && ../../src/$(PROGRAM_NAME).x ../input/CMD_IGA_crack_coarse.txt ./option_crack_IGA_elast.ini
+
+crack2: compile rm mkdir_output
+	# cd ./analysis/material && ./cp.sh ./option_crack_IGA_elast.ini
+	# cd ./analysis/output   && ../../src/$(PROGRAM_NAME).x ../input/CMD_SIGA_crack_glo_middle2.txt ./option_crack_IGA_elast.ini
+	cd ./analysis/material && ./cp.sh ./option_crack_SIGA_elast.ini
+	cd ./analysis/output   && time ../../src/$(PROGRAM_NAME).x ../input/CMD_SIGA_crack_glo_middle2.txt ../input/CMD_SIGA_crack_loc_middle2_2.txt ./option_crack_SIGA_elast.ini
+	# cd ./analysis/output   && valgrind --tool=memcheck --leak-check=full ../../src/$(PROGRAM_NAME).x ../input/CMD_SIGA_crack_glo_middle2.txt ../input/CMD_SIGA_crack_loc_middle2_2.txt ./option_crack_SIGA_elast.ini
+	# cd ./analysis/output   && inspxe-cl -collect mi3 -knob analyze-stack=true -knob enable-memory-growth-detection=true -knob stack-depth=32 -knob enable-on-demand-leak-detection=true -v -- ../../src/$(PROGRAM_NAME).x ../input/CMD_SIGA_crack_glo_middle2.txt ../input/CMD_SIGA_crack_loc_middle2_2.txt ./option_crack_SIGA_elast.ini
+	# cd ./analysis/material && ./cp.sh ./option_crack_SIGA_elast.ini
+	# cd ./analysis/output   && time ../../src/$(PROGRAM_NAME).x ../input/CMD_SIGA_crack_glo_middle2.txt ../input/CMD_SIGA_crack_loc.txt ./option_crack_SIGA_elast.ini
+	# 有限変形はおそらく原理的にできない
+
+crack2_2: compile rm mkdir_output
+	# cd ./analysis/material && ./cp.sh ./option_SIGA_elast.ini
+	# cd ./analysis/output   && ../../src/$(PROGRAM_NAME).x ../input/CMD_SIGA_crack_part_glo.txt ./option_SIGA_elast.ini
+	cd ./analysis/material && ./cp.sh ./option_SIGA_elast.ini
+	cd ./analysis/output   && ../../src/$(PROGRAM_NAME).x ../input/CMD_SIGA_crack_part_glo.txt ../input/CMD_SIGA_crack_part_loc.txt ./option_SIGA_elast.ini
+
+wft: compile rm mkdir_output
+	cd ./analysis/material && ./cp.sh ./option_SIGA_elast.ini
+	cd ./analysis/output   && ../../src/$(PROGRAM_NAME).x ../input/CMD_SIGA_infinite_wft_glo_middle.txt ../input/CMD_SIGA_infinite_wft_loc_middle.txt ./option_SIGA_elast.ini
+
+crack3: compile rm mkdir_output
+	# cd ./analysis/material && ./cp.sh ./option_crack_SIGA_ep.ini
+	# cd ./analysis/output   && ../../src/$(PROGRAM_NAME).x ../input/CMD_SIGA_crack_glo.txt ../input/CMD_SIGA_crack_loc.txt ./option_crack_SIGA_ep.ini
+	cd ./analysis/material && ./cp.sh ./option_crack_SIGA_elast.ini
+	cd ./analysis/output   && time ../../src/$(PROGRAM_NAME).x ../input/CMD_SIGA_crack_glo.txt ../input/CMD_SIGA_crack_loc.txt ./option_crack_SIGA_elast.ini
+
+crack3_ep: compile rm mkdir_output
+	cd ./analysis/material && ./cp.sh ./option_crack_SIGA_ep.ini
+	cd ./analysis/output   && ../../src/$(PROGRAM_NAME).x ../input/CMD_SIGA_crack_glo.txt ../input/CMD_SIGA_crack_loc.txt ./option_crack_SIGA_ep.ini
+
+crack_J_e: compile rm mkdir_output
+	cd ./analysis/material && ./cp.sh ./option_crack_J_e.ini
+	cd ./analysis/output   && ../../src/$(PROGRAM_NAME).x ../input/input_glo_coarse_1.0.txt ../input/input_loc_coarse_1.0.txt ./option_crack_J_e.ini
+# 	cd ./analysis/output   && valgrind --tool=memcheck --leak-check=full ../../src/$(PROGRAM_NAME).x ../input/input_glo_coarse_1.0.txt ../input/input_loc_coarse_1.0.txt ./option_crack_J_e.ini
+
+crack_J_e_2: compile rm mkdir_output
+	cd ./analysis/material && ./cp.sh ./option_crack_J_e_2.ini
+	cd ./analysis/output   && ../../src/$(PROGRAM_NAME).x ../input/input_glo_coarse2_1.0.txt ../input/input_loc_coarse2_1.0.txt ./option_crack_J_e_2.ini
+
+crack_J_e_2_2: compile rm mkdir_output
+	cd ./analysis/material && ./cp.sh ./option_crack_J_e_2_2.ini
+	cd ./analysis/output   && ../../src/$(PROGRAM_NAME).x ../input/input_glo_coarse2_0.2.txt ../input/input_loc_coarse2_0.2.txt ./option_crack_J_e_2_2.ini
+
+crack_J_e_3: compile rm mkdir_output
+	cd ./analysis/material && ./cp.sh ./option_crack_J_e_3.ini
+	cd ./analysis/output   && ../../src/$(PROGRAM_NAME).x ../input/input_glo_coarse3_1.0.txt ../input/input_loc_coarse3_1.0.txt ./option_crack_J_e_3.ini
+
+crack_J_e_4: compile rm mkdir_output
+	cd ./analysis/material && ./cp.sh ./option_crack_J_e_4.ini
+	cd ./analysis/output   && ../../src/$(PROGRAM_NAME).x ../input/input_glo_coarse4_1.0.txt ../input/input_loc_coarse4_1.0.txt ./option_crack_J_e_4.ini
+
+crack_J_e_loconly_1: compile rm mkdir_output
+	cd ./analysis/material && ./cp.sh ./option_crack_J_e_loconly_1.ini
+	cd ./analysis/output   && ../../src/$(PROGRAM_NAME).x ../input/input_loc_loconly1_1.0.txt ./option_crack_J_e_loconly_1.ini
+
+crack_J_e_loconly_2: compile rm mkdir_output
+	cd ./analysis/material && ./cp.sh ./option_crack_J_e_loconly_1.ini
+	cd ./analysis/output   && ../../src/$(PROGRAM_NAME).x ../input/input_loc_loconly2_1.0.txt ./option_crack_J_e_loconly_1.ini
+
+crack_J_e_loconly_3: compile rm mkdir_output
+	cd ./analysis/material && ./cp.sh ./option_crack_J_e_loconly_1.ini
+	cd ./analysis/output   && ../../src/$(PROGRAM_NAME).x ../input/input_loc_loconly3_1.0.txt ./option_crack_J_e_loconly_1.ini
+
+crack_J_e_loconly_4: compile rm mkdir_output
+	cd ./analysis/material && ./cp.sh ./option_crack_J_e_loconly_1.ini
+	cd ./analysis/output   && ../../src/$(PROGRAM_NAME).x ../input/input_loc_loconly4_1.0.txt ./option_crack_J_e_loconly_1.ini
+
+crack_J_e_loconly_4_2: compile rm mkdir_output
+	cd ./analysis/material && ./cp.sh ./option_crack_J_e_loconly_1.ini
+	cd ./analysis/output   && ../../src/$(PROGRAM_NAME).x ../input/input_loc_loconly4_0.2.txt ./option_crack_J_e_loconly_1.ini
+
+# kurosawa
+kurosawa_3D: compile rm mkdir_output
+	cd ./analysis/material && ./cp.sh ./option_crack_J_e.ini
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/kurosawa_glo_rect.txt ../input/kurosawa_loc_rough.txt ./option_crack_J_e.ini
+
+# omar
+omar_1: compile rm mkdir_output
+	cd ./analysis/material && ./cp.sh ./option_crack_J_e.ini
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/omar_input_Embedded_crack_a=2_c=2_singular_crack.txt ./option_crack_J_e.ini | tee log.txt
+# 	cd ./analysis/output && valgrind --tool=memcheck --leak-check=full ../../src/$(PROGRAM_NAME).x ../input/omar_input_Embedded_crack_a=2_c=2_singular_crack.txt ./option_crack_J_e.ini
+
+omar_1_optimized: compile_optimized rm mkdir_output
+	cd ./analysis/material && ./cp.sh ./option_crack_J_e.ini
+	cd ./analysis/output && ../../src_fast/$(PROGRAM_NAME).x ../input/omar_input_Embedded_crack_a=2_c=2_singular_crack.txt ./option_crack_J_e.ini | tee log.txt
+# 	cd ./analysis/output && valgrind --tool=memcheck --leak-check=full ../../src/$(PROGRAM_NAME).x ../input/omar_input_Embedded_crack_a=2_c=2_singular_crack.txt ./option_crack_J_e.ini
+
+omar_2: compile rm mkdir_output
+	cd ./analysis/material && ./cp.sh ./option_crack_J_e.ini
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/omar_input_Embedded_crack_a=1.2_c=2_singular_crack.txt ./option_crack_J_e.ini | tee log.txt
+
+omar_3: compile rm mkdir_output
+	cd ./analysis/material && ./cp.sh ./option_crack_J_e.ini
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/omar_input_Embedded_crack_a=0.4_c=2_singular_crack_Ver5.txt ./option_crack_J_e.ini | tee log.txt
+
+omar_ep_1: compile rm mkdir_output
+	cd ./analysis/material && ./cp.sh ./option_crack_J_ep.ini
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/omar_input_Embedded_crack_a=2_c=2_singular_crack.txt ./option_crack_J_ep.ini | tee log.txt
+
+omar_ep_2: compile rm mkdir_output
+	cd ./analysis/material && ./cp.sh ./option_crack_J_ep.ini
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/omar_input_Embedded_crack_a=1.2_c=2_singular_crack.txt ./option_crack_J_ep.ini | tee log.txt
+
+omar_ep_3: compile rm mkdir_output
+	cd ./analysis/material && ./cp.sh ./option_crack_J_ep.ini
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/omar_input_Embedded_crack_a=0.4_c=2_singular_crack_Ver5.txt ./option_crack_J_ep.ini | tee log.txt
+
+# sample
+run: compile rm mkdir_output
+	cd ./analysis/material && ./cp.sh ./option_IGA_elast.ini
+	cd ./analysis/output   && time ../../src/$(PROGRAM_NAME).x ../input/CMD_IGA.txt ./option_IGA_elast.ini
+	# cd ./analysis/output   && valgrind --tool=helgrind --suppressions=../../suppressions.txt ../../src/$(PROGRAM_NAME).x ../input/CMD_IGA.txt ./option_IGA_elast.ini
+	# cd ./analysis/output   && valgrind --tool=memcheck --leak-check=full ../../src/$(PROGRAM_NAME).x ../input/CMD_IGA.txt ./option_IGA_elast.ini
+
+run2: compile rm mkdir_output
+	cd ./analysis/material && ./cp.sh ./option_hole_SIGA_elast.ini
+	cd ./analysis/output   && time ../../src/$(PROGRAM_NAME).x ../input/rubber_glo.txt ../input/rubber_loc.txt ./option_hole_SIGA_elast.ini
+	# cd ./analysis/output   && inspxe-cl -collect mi3 -knob analyze-stack=true -knob enable-memory-growth-detection=true -knob stack-depth=32 -knob enable-on-demand-leak-detection=true -v -- ../../src/$(PROGRAM_NAME).x ../input/rubber_glo.txt ../input/rubber_loc.txt ./option_hole_SIGA_elast.ini
+	# cd ./analysis/output   && valgrind --tool=helgrind --suppressions=../../suppressions.txt ../../src/$(PROGRAM_NAME).x ../input/rubber_glo.txt ../input/rubber_loc.txt ./option_hole_SIGA_elast.ini
+	# cd ./analysis/output   && valgrind --tool=memcheck --leak-check=full ../../src/$(PROGRAM_NAME).x ../input/rubber_glo.txt ../input/rubber_loc.txt ./option_hole_SIGA_elast.ini
+
+run2_p: compile rm mkdir_output
+	cd ./analysis/material && ./cp.sh ./option_hole_SIGA_ep.ini
+	cd ./analysis/output   && ../../src/$(PROGRAM_NAME).x ../input/rubber_glo.txt ../input/rubber_loc.txt ./option_hole_SIGA_ep.ini
+
+run2_2: compile rm mkdir_output
+	cd ./analysis/material && ./cp.sh ./option1.ini
+	cd ./analysis/output   && ../../src/$(PROGRAM_NAME).x ../input/CMD_SIGA_glo.txt ../input/CMD_SIGA_loc.txt ./option1.ini
+
+run2_3: compile rm mkdir_output #elastic-plastic
+	cd ./analysis/material && ./cp.sh ./option_SIGA_ep.ini
+	cd ./analysis/output   && ../../src/$(PROGRAM_NAME).x ../input/CMD_SIGA_glo.txt ../input/CMD_SIGA_loc.txt ./option_SIGA_ep.ini
+
+run3: compile rm mkdir_output
+	cd ./analysis/material && ./cp.sh ./option1.ini
+	cd ./analysis/output   && ../../src/$(PROGRAM_NAME).x ../input/rubber_sheet.txt ./option1.ini
+
+run3_fine: compile rm mkdir_output
+	cd ./analysis/material && ./cp.sh ./option1.ini
+	cd ./analysis/output   && ../../src/$(PROGRAM_NAME).x ../input/rubber_sheet_fine.txt ./option1.ini
+
+run_cube: compile rm mkdir_output
+	cd ./analysis/material && ./cp.sh ./option1.ini
+	# cd ./analysis/output   && ../../src/$(PROGRAM_NAME).x ../input/cube_u_1.txt ../input/cube_loc.txt ./option1.ini
+	cd ./analysis/output   && ../../src/$(PROGRAM_NAME).x ../input/cube_u_2.txt ../input/cube_loc.txt ./option1.ini
+
+cube_gakkai: compile rm mkdir_output
+	cd ./analysis/material && ./cp.sh ./option_cube_gakkai.ini
+	cd ./analysis/output   && ../../src/$(PROGRAM_NAME).x ../input/cube_gakkai_glo.txt ../input/cube_gakkai_loc.txt ./option_cube_gakkai.ini
+
+IGA_ref: compile rm mkdir_output
+	cd ./analysis/material && ./cp.sh ./option_IGA_ep.ini
+	cd ./analysis/output   && ../../src/$(PROGRAM_NAME).x ../input/IGA_ref.txt ./option_IGA_ep.ini
+
+CMD_IGA_oishi_reso_1: compile rm mkdir_output
+# 	plastic
+# 	cd ./analysis/material && ./cp.sh ./option_IGA_ep.ini
+# 	cd ./analysis/output   && ../../src/$(PROGRAM_NAME).x ../input/oishi_IGA_CMD_coarse.txt ./option_IGA_ep.ini
+# 	elastic
+	cd ./analysis/material && ./cp.sh ./option_IGA_elast.ini
+	cd ./analysis/output   && ../../src/$(PROGRAM_NAME).x ../input/oishi_IGA_CMD_coarse.txt ./option_IGA_elast.ini
+
+CMD_IGA_oishi_reso_2: compile rm mkdir_output
+# 	plastic
+# 	cd ./analysis/material && ./cp.sh ./option_IGA_ep.ini
+# 	cd ./analysis/output   && ../../src/$(PROGRAM_NAME).x ../input/oishi_IGA_CMD_fine.txt ./option_IGA_ep.ini
+# 	elastic
+	cd ./analysis/material && ./cp.sh ./option_IGA_elast.ini
+	cd ./analysis/output   && ../../src/$(PROGRAM_NAME).x ../input/oishi_IGA_CMD_fine.txt ./option_IGA_elast.ini
+
+CMD_IGA_square_Jint: compile rm mkdir_output
+	cd ./analysis/material && ./cp.sh ./option_IGA_elast.ini
+	cd ./analysis/output   && ../../src/$(PROGRAM_NAME).x ../input/square_Jint.txt ./option_IGA_elast.ini | tee log.txt
+
+CMD_SIGA_square_Jint: compile rm mkdir_output
+	cd ./analysis/material && ./cp.sh ./option_SIGA_square_elast.ini
+	cd ./analysis/output   && ../../src/$(PROGRAM_NAME).x ../input/square_Jint_glo.txt ../input/square_Jint_loc.txt ./option_SIGA_square_elast.ini
+
+tokutome_20251023: compile_optimized rm mkdir_output
+	cd ./analysis/material && ./cp.sh ./option_SIGA_elast.ini
+	cd ./analysis/output && . ../setenv.sh && $(PERF) $(NUMACTL) stdbuf -oL \
+		../../src_fast/$(PROGRAM_NAME).x ../input/tokutome_glo_20251023.txt ../input/tokutome_loc_20251023.txt ./option_SIGA_elast.ini | tee log.txt
+
+4tenmage: compile rm mkdir_output
+	cd ./analysis/material && ./cp.sh ./option_IGA_elast.ini
+	cd ./analysis/output && . ../setenv.sh && $(PERF) $(NUMACTL) stdbuf -oL \
+		../../src/$(PROGRAM_NAME).x ../input/pipe_input_fine.txt ./option_IGA_elast.ini | tee log.txt
+# 	cd ./analysis/material && ./cp.sh ./option_IGA_ep.ini
+# 	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/pipe_input_fine.txt ./option_IGA_ep.ini
+
+4tenmage_fine2: compile rm mkdir_output
+	cd ./analysis/material && ./cp.sh ./option_IGA_elast.ini
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/pipe_input_fine2.txt ./option_IGA_elast.ini
+# 	cd ./analysis/material && ./cp.sh ./option_IGA_ep.ini
+# 	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/pipe_input_fine2.txt ./option_IGA_ep.ini
+
+IGA_through_crack_e: compile rm mkdir_output
+	cd ./analysis/material && ./cp.sh ./option_IGA_elast.ini
+	cd ./analysis/output && . ../setenv.sh && $(PERF) $(NUMACTL) stdbuf -oL \
+		../../src/$(PROGRAM_NAME).x ../input/IGA_through_crack.txt ./option_IGA_elast.ini | tee log.txt
+
+IGA_through_crack_ep: compile_optimized rm mkdir_output
+	cd ./analysis/material && ./cp.sh ./option_IGA_ep.ini
+	cd ./analysis/output && . ../setenv.sh && $(PERF) $(NUMACTL) stdbuf -oL \
+		../../src_fast/$(PROGRAM_NAME).x ../input/IGA_through_crack.txt ./option_IGA_ep.ini | tee log.txt
+
+tanaka_20251028: compile rm mkdir_output
+	cd ./analysis/material && ./cp.sh ./option_SIGA_elast.ini
+	cd ./analysis/output   && ../../src/$(PROGRAM_NAME).x ../input/tanaka_glo_20251028.txt ../input/tanaka_loc_20251028.txt ./option_SIGA_elast.ini | tee log.txt
+
+# for paraview
+view_0:
+	cd ./analysis/output && paraview global_patch.xmf2 global_patch_boundary_line.xmf2 global_patch_control_point.xmf2
+
+view_1:
+	cd ./analysis/output && paraview global_patch.xmf2 global_patch_boundary_line.xmf2 global_patch_control_point.xmf2 \
+	local_patch.xmf2 local_patch_boundary_line.xmf2 local_patch_control_point.xmf2
+
+view_2:
+	cd ./analysis/output && paraview global_patch.xmf2 global_patch_boundary_line.xmf2 global_patch_control_point.xmf2 \
+	deformed_global_patch.xmf2 deformed_global_patch_boundary_line.xmf2
+
+view_3:
+	cd ./analysis/output && paraview global_patch.xmf2 global_patch_boundary_line.xmf2 global_patch_control_point.xmf2 \
+	local_patch.xmf2 local_patch_boundary_line.xmf2 local_patch_control_point.xmf2 \
+	deformed_global_patch.xmf2 deformed_global_patch_boundary_line.xmf2 \
+	deformed_local_patch.xmf2 deformed_local_patch_boundary_line.xmf2
+
+# mkdir
+mkdir_output:
+	cd ./analysis && mkdir -p output
+	cd ./analysis/output && mkdir -p bin
+
+# rm
+rm:
+	cd ./analysis && rm -rf output
+
+# clean
+clean: rm
+	rm -f ./src/*.x
+	rm -f ./src/*.o
+	rm -f ./src/*.a
+	rm -f ./src/*.d
+	rm -f ./src/*.tmp
+	rm -f ./src_fast/src/*.x
+	rm -f ./src_fast/src/*.o
+	rm -f ./src_fast/src/*.a
+	rm -f ./src_fast/src/*.d
+	rm -f ./src_fast/src/*.tmp
+	rm -f ./src_fast/*.x

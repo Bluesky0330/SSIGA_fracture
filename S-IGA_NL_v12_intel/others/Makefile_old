@@ -1,0 +1,182 @@
+PROGRAM_NAME	= S-IGA
+
+# compile
+compile:
+	cd ./src && make -f Make_src
+
+# CMD
+CMD_IGA_infinite: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/CMD_IGA.txt
+
+CMD_SIGA_infinite: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/CMD_SIGA_glo.txt ../input/CMD_SIGA_loc.txt
+
+CMD_SIGA_infinite_middle: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/CMD_SIGA_glo_middle.txt ../input/CMD_SIGA_loc_middle.txt
+
+CMD_SIGA_infinite_wft: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/CMD_SIGA_infinite_wft_glo.txt ../input/CMD_SIGA_infinite_wft_loc.txt
+
+CMD_SIGA_infinite_wft_middle: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/CMD_SIGA_infinite_wft_glo_middle.txt ../input/CMD_SIGA_infinite_wft_loc_middle.txt
+
+CMD_IGA_finite: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/CMD_IGA_crack.txt
+
+CMD_IGA_finite_coarse: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/CMD_IGA_crack_coarse.txt
+
+CMD_SIGA_finite: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/CMD_SIGA_crack_glo.txt ../input/CMD_SIGA_crack_loc.txt
+
+CMD_SIGA_finite_fine: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/CMD_SIGA_crack_glo_fine.txt ../input/CMD_SIGA_crack_loc_fine.txt
+
+CMD_SIGA_finite_middle: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/CMD_SIGA_crack_glo_middle.txt ../input/CMD_SIGA_crack_loc_middle.txt
+
+CMD_SIGA_finite_middle2: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/CMD_SIGA_crack_glo_middle2.txt ../input/CMD_SIGA_crack_loc_middle2.txt
+
+CMD_SIGA_finite_middle3: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/CMD_SIGA_crack_glo_middle3.txt ../input/CMD_SIGA_crack_loc_middle3.txt
+
+# CMD_SIGA_finite: compile rm mkdir_output cp
+# 	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/CMD_SIGA_glo_u.txt ../input/CMD_SIGA_loc.txt
+
+
+# sample
+crack_iga_fine_1: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/crack_iga_fine_1.txt
+
+crack_iga_fine_2: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/crack_iga_fine_2.txt
+
+crack_iga: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/crack_iga.txt
+
+SIGA_rubber_special_bc: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/rubber_glo_special_bc.txt ../input/rubber_loc_special_bc.txt
+
+SIGA_no_crack: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/crack_glo_fine.txt ../input/no_crack_loc_0.txt
+	# cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/crack_glo_coarse.txt ../input/no_crack_loc_0.txt
+
+SIGA_crack_global_test_v2: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/crack_glo_v2.txt
+
+SIGA_crack_local_fine_v2: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/crack_glo_v2.txt ../input/crack_loc_0_fine_v2.txt
+
+SIGA_crack_v2: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/crack_glo_v2.txt ../input/crack_loc_0_v2.txt
+
+SIGA_crack_local_fine: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/crack_glo_fine.txt ../input/crack_loc_0_fine.txt
+
+SIGA_crack: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/crack_glo_fine.txt ../input/crack_loc_0.txt
+	# cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/crack_glo_coarse.txt ../input/crack_loc_0.txt
+
+SIGA_crack_angle45: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/crack_glo_coarse.txt ../input/crack_loc_45.txt
+
+rubber_sheet: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/rubber_sheet.txt
+
+SIGA_rubber: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/rubber_glo.txt ../input/rubber_loc.txt
+
+SIGA_rubber_coarse: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/rubber_glo_coarse.txt ../input/rubber_loc_coarse.txt
+
+SIGA_rubber_coarse_2: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/rubber_glo_coarse.txt ../input/rubber_loc.txt
+
+SIGA_rubber_without_fict: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/rubber_glo_without_fict.txt ../input/rubber_loc_without_fict.txt
+
+SIGA_rubber_without_fict_coarse: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/rubber_glo_without_fict_coarse.txt ../input/rubber_loc_without_fict_coarse.txt
+
+SIGA_rwf_fine: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/rubber_glo_without_fict_coarse.txt ../input/rubber_loc_without_fict_coarse.txt
+
+SIGA_cube_debug_fine: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/cube_u_fine.txt ../input/cube_loc.txt
+
+SIGA_cube_debug: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/cube_u.txt ../input/cube_loc.txt
+
+beam: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/beam_3D.txt
+
+beam_u: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/beam_3D_u.txt
+
+beam_moment: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/beam_moment.txt
+
+cube: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/cube.txt
+
+cube_u: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/cube_u.txt
+
+cylinder: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/cylinder.txt
+
+simple_cylinder: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/simple_cylinder.txt
+
+simple_cylinder_coarse: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/simple_cylinder_coarse.txt
+
+simple_cylinder_book_coarse: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/simple_cylinder_book_coarse.txt
+
+cylinder_quarter: compile rm mkdir_output cp
+	cd ./analysis/output && ../../src/$(PROGRAM_NAME).x ../input/cylinder_quarter.txt
+
+pre_beam: rm mkdir_output
+	cd ./analysis/output && ../../src/pre_viewer.x ../input/beam_3D.txt
+
+pre_cube: rm mkdir_output
+	cd ./analysis/output && ../../src/pre_viewer.x ../input/cube.txt
+
+# for paraview
+view_0:
+	cd ./analysis/output && paraview global_patch.xmf2 global_patch_boundary_line.xmf2 global_patch_control_point.xmf2
+
+view_1:
+	cd ./analysis/output && paraview global_patch.xmf2 global_patch_boundary_line.xmf2 global_patch_control_point.xmf2 \
+	local_patch.xmf2 local_patch_boundary_line.xmf2 local_patch_control_point.xmf2
+
+view_2:
+	cd ./analysis/output && paraview global_patch.xmf2 global_patch_boundary_line.xmf2 global_patch_control_point.xmf2 \
+	deformed_global_patch.xmf2 deformed_global_patch_boundary_line.xmf2
+
+view_3:
+	cd ./analysis/output && paraview global_patch.xmf2 global_patch_boundary_line.xmf2 global_patch_control_point.xmf2 \
+	local_patch.xmf2 local_patch_boundary_line.xmf2 local_patch_control_point.xmf2 \
+	deformed_global_patch.xmf2 deformed_global_patch_boundary_line.xmf2 \
+	deformed_local_patch.xmf2 deformed_local_patch_boundary_line.xmf2
+
+# mkdir
+mkdir_output:
+	cd ./analysis && mkdir -p output
+	cd ./analysis/output && mkdir -p bin
+
+# rm
+rm:
+	cd ./analysis && rm -rf output
+
+# cp
+cp:
+	cd ./analysis/material && cp ./material.txt ../output && cp ./load_surface.txt ../output && cp ./crack_pair.txt ../output
+
+# clean
+clean: rm
+	rm -f ./src/*.x
+	rm -f ./src/*.o
+	rm -f ./src/*.a

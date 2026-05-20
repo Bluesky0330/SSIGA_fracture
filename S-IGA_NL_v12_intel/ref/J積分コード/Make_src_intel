@@ -1,0 +1,28 @@
+PROGRAM_NAME	= S-IGA_PCG
+COMPILER		= icpx
+OPTION_1		= -Ofast -Wall -Wextra -g -lmkl_rt -mkl -lmkl_intel_lp64 -lmkl_sequential -lmkl_core -qopenmp -pipe
+
+# compile
+$(PROGRAM_NAME).x: main.o sub.a
+	$(COMPILER) -o $(PROGRAM_NAME).x main.o sub.a $(OPTION_1)
+
+main.o: main.cpp _header.hpp _main.hpp
+	$(COMPILER) -c main.cpp $(OPTION_1)
+
+sub.a: sub_pre.o sub_solver.o sub_tool.o sub_post.o sub_MI3D.o
+	ar rc sub.a *.o
+
+sub_pre.o: sub_pre.cpp _header.hpp _sub.hpp
+	$(COMPILER) -c sub_pre.cpp $(OPTION_1)
+
+sub_solver.o: sub_solver.cpp _header.hpp _sub.hpp
+	$(COMPILER) -c sub_solver.cpp $(OPTION_1)
+
+sub_tool.o: sub_tool.cpp _header.hpp _sub.hpp
+	$(COMPILER) -c sub_tool.cpp $(OPTION_1)
+
+sub_post.o: sub_post.cpp _header.hpp _sub.hpp _MI3D.hpp
+	$(COMPILER) -c sub_post.cpp $(OPTION_1)
+
+sub_MI3D.o: sub_MI3D.cpp _header.hpp _sub.hpp _MI3D.hpp
+	$(COMPILER) -c sub_MI3D.cpp $(OPTION_1)

@@ -1,0 +1,87 @@
+# ----------------------------------------------------
+# SSIGA Makefile (Separate Compilation / icpx Optimized)
+# ----------------------------------------------------
+PROGRAM_NAME = SSIGA.x
+COMPILER     = icpx
+
+# ----------------------------------------------------
+# CPUフラグの自動検出
+# ----------------------------------------------------
+CPU_FLAGS := $(shell grep -m1 -o -E 'avx512f|avx2|avx' /proc/cpuinfo | sort -u)
+
+# アーキテクチャ固有設定
+ARCH_OPT :=
+ifeq ($(findstring avx512f,$(CPU_FLAGS)),avx512f)
+    ARCH_OPT := -xCORE-AVX512 -mtune=native -qopt-zmm-usage=high
+else ifeq ($(findstring avx2,$(CPU_FLAGS)),avx2)
+    ARCH_OPT := -xCORE-AVX2 -mtune=native
+else
+    ARCH_OPT := -march=native
+endif
+
+# ----------------------------------------------------
+# 共通オプション (コンパイル・リンク両方で必要なもの)
+# ----------------------------------------------------
+COMMON_OPT = -O3 -std=c++20 -qopenmp -qopenmp-simd \
+             -ipo \
+             -fp-model=precise \
+             -fdiagnostics-color=always
+
+# ----------------------------------------------------
+# コンパイル専用オプション (CFLAGS)
+# ----------------------------------------------------
+COMPILE_OPT = -fno-alias -ansi-alias \
+              -qopt-prefetch=5 \
+              -qopt-mem-layout-trans=3 \
+              -falign-functions=64 \
+              -funroll-loops \
+              $(ARCH_OPT) \
+              -I/usr/include/hdf5/serial \
+              -Wall -Wextra -Wno-unused-parameter \
+              -MMD -MP
+
+# 統合されたコンパイルフラグ
+CFLAGS = $(COMMON_OPT) $(COMPILE_OPT)
+
+# ----------------------------------------------------
+# LTO（Link Time Optimization）設定
+# ----------------------------------------------------
+LTO_OPT = -flto=auto -flto-jobs=$(shell nproc)
+
+# ----------------------------------------------------
+# リンク専用オプション
+# ----------------------------------------------------
+# ライブラリのみ定義
+LIBS = -mkl -qmkl=parallel -Bstatic \
+       -lmkl_rt -lpthread -lm -ldl -liomp5 \
+       -lhdf5_cpp -lhdf5 -L/usr/lib/x86_64-linux-gnu/hdf5/serial
+
+# ----------------------------------------------------
+# ファイル定義
+# ----------------------------------------------------
+SRCS = main.cpp sub_pre.cpp sub_solver.cpp sub_tool.cpp \
+       sub_post.cpp sub_MI3D.cpp sub_search.cpp class.cpp \
+       sub_frac.cpp
+OBJS = $(SRCS:.cpp=.o)
+DEPS = $(SRCS:.cpp=.d)
+
+# ----------------------------------------------------
+# ルール
+# ----------------------------------------------------
+.PHONY: all clean
+
+all: $(PROGRAM_NAME)
+
+# リンク (Linking)
+$(PROGRAM_NAME): $(OBJS)
+	$(COMPILER) $(COMMON_OPT) $(LTO_OPT) -o $@ $(OBJS) $(LIBS)
+	@echo "Build complete."
+
+# コンパイル (Compiling)
+%.o: %.cpp
+	$(COMPILER) $(CFLAGS) -c $< -o $@
+
+-include $(DEPS)
+
+clean:
+	rm -f *.o *.d *.a $(PROGRAM_NAME)
