@@ -895,6 +895,18 @@ void make_virtual_crack_extension_area(J_point_info &jp, J_info &J, size_t line,
 					current_normal[m] *= -1.0;
 		}
 
+		// debug normal direction
+		// cout << "line: " << line << " i: " << i << " normal: ";
+		// for (int m = 0; m < info->DIMENSION; m++)
+		// {
+		// 	cout << normal[line * J.sub_n + i][m] << "\t";
+		// }
+		// cout << endl;
+
+		// debug virtual crack extension area
+		// cout << "line: " << line << " i: " << i << " virtual crack extension area: " << J_integral_area[line * J.sub_n + i] << endl;
+
+
 		#if defined(INTERACTION_INTEGRAL_METHOD)
 		// opening direction (n_open): crack plane normal
 		// use cross(vec_e, vec_c) which is normal to the plane spanned by propagation (vec_e) and front tangent (vec_c)
@@ -1239,7 +1251,7 @@ void J_sub_element(vector<J_info> &J_list, vector<J_point_info> &jp_list, vector
 				jp_list[i].IIM_K_val[j][k] = 0.0;
 	#endif
 
-	#pragma omp parallel
+	// #pragma omp parallel
 	{
 		// cache J_val
 		vector<vector<double>> local_J_val(jp_list.size());
@@ -1256,7 +1268,7 @@ void J_sub_element(vector<J_info> &J_list, vector<J_point_info> &jp_list, vector
 			local_IIM_K_val[i].resize(jp_list[i].IIM_K_val.size(), vector<double>(3, 0.0));
 		#endif
 
-		#pragma omp for schedule(dynamic) nowait
+		// #pragma omp for schedule(dynamic) nowait
 		for (size_t i = 0; i < sub_ele.size(); i++)
 		{
 			sub_ele_J &current_sub_ele = sub_ele[i];
@@ -1307,21 +1319,6 @@ void J_sub_element(vector<J_info> &J_list, vector<J_point_info> &jp_list, vector
 				double *para_ptr = current_sub_ele.para_tilde.data() + j * info->DIMENSION;
 
 				Make_B_Linear(e, para_ptr, bl.data(), info);
-				{
-					vector<double> b(info->DIMENSION * MAX_NO_CP_ON_ELEMENT, 0.0);
-					if (e < info->Total_Element_to_mesh[1])
-						Make_B_component(e, para_ptr, b.data(), info);
-					else
-						Make_B_component_for_SSIGA(e, para_ptr, b.data(), info);
-
-					for (int cp = 0; cp < info->No_Control_point_ON_ELEMENT[info->Element_patch[e]]; cp++)
-						for (int comp = 0; comp < info->DIMENSION; comp++)
-							for (int dir = 0; dir < info->DIMENSION; dir++)
-							{
-								int offset = comp * info->DIMENSION + dir;
-								b_disp_grad[offset * MAX_KIEL_SIZE + cp * info->DIMENSION + comp] = b[dir * MAX_NO_CP_ON_ELEMENT + cp];
-							}
-				}
 
 				for (int k = 0; k < info->No_Control_point_ON_ELEMENT[info->Element_patch[e]]; k++)
 					for (int l = 0; l < info->DIMENSION; l++)
@@ -1352,22 +1349,17 @@ void J_sub_element(vector<J_info> &J_list, vector<J_point_info> &jp_list, vector
 					vector<double> opp_b_disp_grad(info->DIMENSION * info->DIMENSION * MAX_KIEL_SIZE, 0.0);
 					vector<double> opp_u(info->DIMENSION * MAX_KIEL_SIZE, 0.0);
 
-					Make_B_Linear(overlay_ele, opp_para_ptr, opp_bl.data(), info);
-					{
-						vector<double> opp_b(info->DIMENSION * MAX_NO_CP_ON_ELEMENT, 0.0);
-						if (overlay_ele < info->Total_Element_to_mesh[1])
-							Make_B_component(overlay_ele, opp_para_ptr, opp_b.data(), info);
-						else
-							Make_B_component_for_SSIGA(overlay_ele, opp_para_ptr, opp_b.data(), info);
+					// debug opp_para
+					// if (i == 0 && overlay_ele == 306)
+					// {
+					// 	printf("Debug: sub_ele %zu, gp %d, overlay_ele %d, opp_para: ", i, j, overlay_ele);
+					// 	for (int m = 0; m < info->DIMENSION; m++)
+					// 		printf("%.6e ", opp_para_ptr[m]);
+					// 	printf("\n");
+					// 	fflush(stdout);
+					// }
 
-						for (int cp = 0; cp < info->No_Control_point_ON_ELEMENT[info->Element_patch[overlay_ele]]; cp++)
-							for (int comp = 0; comp < info->DIMENSION; comp++)
-								for (int dir = 0; dir < info->DIMENSION; dir++)
-								{
-									int offset = dir * info->DIMENSION + comp;
-									opp_b_disp_grad[offset * MAX_KIEL_SIZE + cp * info->DIMENSION + comp] = opp_b[dir * MAX_NO_CP_ON_ELEMENT + cp];
-								}
-					}
+					Make_B_Linear(overlay_ele, opp_para_ptr, opp_bl.data(), info);
 
 					for (int k = 0; k < info->No_Control_point_ON_ELEMENT[info->Element_patch[overlay_ele]]; k++)
 						for (int l = 0; l < info->DIMENSION; l++)
@@ -1389,6 +1381,15 @@ void J_sub_element(vector<J_info> &J_list, vector<J_point_info> &jp_list, vector
 								disp_grad[k * info->DIMENSION + l] += opp_u[m] * opp_b_disp_grad[offset * MAX_KIEL_SIZE + m];
 						}
 				}
+
+				// if (i == 22)
+				// {
+				// 	for (int k = 0; k < D_MATRIX_SIZE; k++)
+				// 	{
+				// 		printf("gp%d: strain_trial[%d] = %.6e\n", j, k, strain_trial[k]);
+				// 	}
+				// }
+
 
 				// Calculate trial stresses: {sigma}^trial = [D] * {epsilon}^trial (small deformation)
 				vector<double> stress_trial(D_MATRIX_SIZE, 0.0);
@@ -1552,6 +1553,13 @@ void J_sub_element(vector<J_info> &J_list, vector<J_point_info> &jp_list, vector
 					for (int l = 0; l < info->DIMENSION; l++)
 					{
 						J_int[k] += (stress_disp_grad[l * info->DIMENSION + k] - W_I[k * info->DIMENSION + l]) * q_grad[l] * coef;
+
+						// for debug jp_list == 0, jp_list[i].J_val == 22
+						// if (i == 0 && j == 22)
+						// {
+						// 	printf("Debug: i=%zu, j=%d, k=%d, l=%d, stress_disp_grad=%.3e, W_I=%.3e, q_grad=%.3e, coef=%.3e\n",i, j, k, l, stress_disp_grad[l * info->DIMENSION + k], W_I[k * info->DIMENSION + l], q_grad[l], coef);
+						// 	fflush(stdout);
+						// }
 					}
 
 				for (int k = 0; k < info->DIMENSION; k++)

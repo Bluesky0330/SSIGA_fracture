@@ -1,0 +1,24 @@
+<?xml version="1.0" ?>
+<Xdmf Version="2.0">
+  <Domain>
+    <Grid Name="local_patch_control_point_at_global_parameter_space.xmf2" CollectionType="Temporal" GridType="Collection">
+      <Grid Name="step0" GridType="Collection">
+        <Time Value="0.00000000000000000000e+00"/>
+        <Grid Name="ien">
+          <Topology TopologyType="Polyvertex" NumberOfElements="70453">
+            <DataItem Reference="XML">/Xdmf/Domain/Grid/Grid[1]//Grid/DataItem[@Name=&quot;ien&quot;]</DataItem>
+          </Topology>
+          <Geometry GeometryType="XYZ">
+            <DataItem Reference="XML">/Xdmf/Domain/Grid/Grid[1]//Grid/DataItem[@Name=&quot;xyz&quot;]</DataItem>
+          </Geometry>
+          <DataItem Name="xyz" Dimensions="70453 3" ItemType="Uniform" NumberType="Float" Precision="8" Format="HDF">
+            ./bin/local_patch_cp_step0.h5:/xyz
+          </DataItem>
+          <DataItem Name="ien" Dimensions="70453 1" ItemType="Uniform" NumberType="Int" Format="HDF">
+            ./bin/local_patch_cp_gps_step0.h5:/ien
+          </DataItem>
+        </Grid>
+      </Grid>
+    </Grid>
+  </Domain>
+</Xdmf>

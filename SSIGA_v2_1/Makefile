@@ -2,17 +2,23 @@ PROGRAM_NAME = SSIGA
 
 # INPUT_NAME := SCCHP_v3_super_coarse
 # INPUT_NAME := SCCHP_v3_coarse
+# INPUT_NAME := SCCHP_v3_only_geometric
 # INPUT_NAME := SCCHP_v3_fine
 # INPUT_NAME := SCCHP_v3_super_fine
 # INPUT_NAME := SCCHP_v4_coarse
 # INPUT_NAME := SCCHP_v4_only_geometric
 # INPUT_NAME := SCCHP_v5_coarse
-INPUT_NAME := SCCHP_v6_coarse
+# INPUT_NAME := SCCHP_v6_coarse
 # INPUT_NAME := SCCHP_v6_only_geometric
 # INPUT_NAME := simple_crack_coarse
 # INPUT_NAME := simple_crack_fine_embedded
 # INPUT_NAME := simple_crack_hamano
-
+# INPUT_NAME := H_steel
+# INPUT_NAME := SCCHP_v8_coarse
+# INPUT_NAME := SCCHP_v9_coarse
+# INPUT_NAME := SCCHP_v9_fine
+INPUT_NAME := SCCHP_v10_coarse
+# INPUT_NAME := SCCHP_v10_only_geometric
 
 # 出力ディレクトリをインプット名から自動生成
 OUTPUT_DIR := output_$(INPUT_NAME)

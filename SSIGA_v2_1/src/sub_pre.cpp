@@ -1835,15 +1835,15 @@ void Make_INC_for_local_geometric(information *info)
 			for (n = 0; n < Total_Element; n++)
 			{
 				int ele = n + Total_Element_to_Now;
-				for (o = 0; o < info->Geo_line_No_real_element[info->Element_patch[ele] * info->DIMENSION + 0]; o++)
+				for (o = 0; o < info->Geo_line_No_real_element[info->Geo_Element_patch[ele] * info->DIMENSION + 0]; o++)
 				{
 					if (info->Geo_ENC[ele * info->DIMENSION + 0] == info->Geo_real_element_line[info->Geo_Element_patch[ele] * (info->Geo_Total_Element_to_mesh * info->DIMENSION) + o * info->DIMENSION + 0])
 					{
-						for (p = 0; p < info->Geo_line_No_real_element[info->Element_patch[ele] * info->DIMENSION + 1]; p++)
+						for (p = 0; p < info->Geo_line_No_real_element[info->Geo_Element_patch[ele] * info->DIMENSION + 1]; p++)
 						{
 							if (info->Geo_ENC[ele * info->DIMENSION + 1] == info->Geo_real_element_line[info->Geo_Element_patch[ele] * (info->Geo_Total_Element_to_mesh * info->DIMENSION) + p * info->DIMENSION + 1])
 							{
-								for (q = 0; q < info->Geo_line_No_real_element[info->Element_patch[ele] * info->DIMENSION + 2]; q++)
+								for (q = 0; q < info->Geo_line_No_real_element[info->Geo_Element_patch[ele] * info->DIMENSION + 2]; q++)
 								{
 									if (info->Geo_ENC[ele * info->DIMENSION + 2] == info->Geo_real_element_line[info->Geo_Element_patch[ele] * (info->Geo_Total_Element_to_mesh * info->DIMENSION) + q * info->DIMENSION + 2])
 									{
@@ -3315,6 +3315,15 @@ void geo_trans_ele_patch_coord(double* xi_patch, const double* xi_elem, int patc
 // search element
 int ele_check(int patch_n, double *para_coord, information *info)
 {
+	// para_coordが0.0~1.0の外にある場合は、1.0に丸める
+	for (int i = 0; i < info->DIMENSION; i++)
+	{
+		if (para_coord[i] - 0.0 < MERGE_ERROR)
+			para_coord[i] = 0.0;
+		if (para_coord[i] - 1.0 > MERGE_ERROR)
+			para_coord[i] = 1.0;
+	}
+
 	int line[MAX_DIMENSION] = {0};
 	for (int i = 0; i < info->DIMENSION; i++)
 	{
@@ -3369,6 +3378,15 @@ int ele_check(int patch_n, double *para_coord, information *info)
 // ローカルのパラメータ空間座標を与えると、ローカル形状表現の要素を得る
 int geo_ele_check(int patch_n, double *para_coord, information *info)
 {
+	// para_coordが0.0~1.0の外にある場合は、1.0に丸める
+	for (int i = 0; i < info->DIMENSION; i++)
+	{
+		if (para_coord[i] - 0.0 < MERGE_ERROR)
+			para_coord[i] = 0.0;
+		if (para_coord[i] - 1.0 > MERGE_ERROR)
+			para_coord[i] = 1.0;
+	}
+
 	int line[MAX_DIMENSION];
 	for (int i = 0; i < info->DIMENSION; i++)
 	{

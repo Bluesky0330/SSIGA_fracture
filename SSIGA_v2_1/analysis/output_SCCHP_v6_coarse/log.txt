@@ -5,16 +5,16 @@
 start Get Option Data
 
 ANALYSIS_MODE: 1
-GEOMETRY_ONLY_OUTPUT: 1
-OUTPUT_GLOBAL_PARAMETERS: 1
+GEOMETRY_ONLY_OUTPUT: 0
+OUTPUT_GLOBAL_PARAMETERS: 0
 OUTPUT_PARAVIEW: 1
 CALC_ON_GP: 0
 CALC_ON_ELE_VERTEX: 1
 USE_EXTENDED_QUADRATURE: 1
 NUM_GAUSS_POINTS: 4
 NUM_GAUSS_POINTS_EXTENDED: 10
-FRACTURE_MODE: 0
-CALCLATE_DISPLACEMENT: 1
+FRACTURE_MODE: 1
+CALCLATE_DISPLACEMENT: 0
 INTEGRAL_DOMAIN_TYPE: 5
 CRACK_TYPE: 0
 OUTPUT_FREE_SURFACE: 1
@@ -1858,3 +1858,77 @@ Geo_No_Control_point_ON_ELEMENT[86] = 27
 Geo_No_Control_point_ON_ELEMENT[87] = 27
 
 start Make INC
+start Preprocessing
+Displacement calculation is skipped.
+
+start reading displacement file.
+start Fracture analysis
+
+start calc_J
+start allocation
+start init
+start J_sub_element
+Debug: sub_ele 0, gp 0, overlay_ele 342, opp_para: 4.634132e-01 -9.987928e-01 -9.999571e-01 
+Debug: sub_ele 0, gp 1, overlay_ele 342, opp_para: 4.633850e-01 -9.987928e-01 -9.990319e-01 
+Debug: sub_ele 0, gp 2, overlay_ele 342, opp_para: 4.632929e-01 -9.987928e-01 -9.960096e-01 
+Debug: sub_ele 0, gp 3, overlay_ele 342, opp_para: 4.631799e-01 -9.987929e-01 -9.923016e-01 
+Debug: sub_ele 0, gp 4, overlay_ele 342, opp_para: 4.634107e-01 -9.942613e-01 -9.999571e-01 
+Debug: sub_ele 0, gp 5, overlay_ele 342, opp_para: 4.633824e-01 -9.942614e-01 -9.990319e-01 
+Debug: sub_ele 0, gp 6, overlay_ele 342, opp_para: 4.632903e-01 -9.942618e-01 -9.960096e-01 
+Debug: sub_ele 0, gp 7, overlay_ele 342, opp_para: 4.631773e-01 -9.942622e-01 -9.923016e-01 
+Debug: sub_ele 0, gp 8, overlay_ele 342, opp_para: 4.634023e-01 -9.883475e-01 -9.999571e-01 
+Debug: sub_ele 0, gp 9, overlay_ele 342, opp_para: 4.633741e-01 -9.883478e-01 -9.990319e-01 
+Debug: sub_ele 0, gp 10, overlay_ele 342, opp_para: 4.632820e-01 -9.883485e-01 -9.960096e-01 
+Debug: sub_ele 0, gp 11, overlay_ele 342, opp_para: 4.631690e-01 -9.883494e-01 -9.923016e-01 
+Debug: sub_ele 0, gp 12, overlay_ele 342, opp_para: 4.633920e-01 -9.838138e-01 -9.999571e-01 
+Debug: sub_ele 0, gp 13, overlay_ele 342, opp_para: 4.633638e-01 -9.838141e-01 -9.990319e-01 
+Debug: sub_ele 0, gp 14, overlay_ele 342, opp_para: 4.632717e-01 -9.838152e-01 -9.960095e-01 
+Debug: sub_ele 0, gp 15, overlay_ele 342, opp_para: 4.631587e-01 -9.838164e-01 -9.923016e-01 
+Debug: sub_ele 0, gp 16, overlay_ele 342, opp_para: 4.634083e-01 -9.987928e-01 -9.999571e-01 
+Debug: sub_ele 0, gp 17, overlay_ele 342, opp_para: 4.632743e-01 -9.987929e-01 -9.990316e-01 
+Debug: sub_ele 0, gp 18, overlay_ele 342, opp_para: 4.628364e-01 -9.987932e-01 -9.960083e-01 
+Debug: sub_ele 0, gp 19, overlay_ele 342, opp_para: 4.622993e-01 -9.987937e-01 -9.922978e-01 
+Debug: sub_ele 0, gp 20, overlay_ele 342, opp_para: 4.634057e-01 -9.942613e-01 -9.999571e-01 
+Debug: sub_ele 0, gp 21, overlay_ele 342, opp_para: 4.632717e-01 -9.942619e-01 -9.990316e-01 
+Debug: sub_ele 0, gp 22, overlay_ele 342, opp_para: 4.628339e-01 -9.942636e-01 -9.960083e-01 
+Debug: sub_ele 0, gp 23, overlay_ele 342, opp_para: 4.622967e-01 -9.942657e-01 -9.922978e-01 
+Debug: sub_ele 0, gp 24, overlay_ele 342, opp_para: 4.633974e-01 -9.883476e-01 -9.999571e-01 
+Debug: sub_ele 0, gp 25, overlay_ele 342, opp_para: 4.632633e-01 -9.883487e-01 -9.990316e-01 
+Debug: sub_ele 0, gp 26, overlay_ele 342, opp_para: 4.628255e-01 -9.883521e-01 -9.960083e-01 
+Debug: sub_ele 0, gp 27, overlay_ele 342, opp_para: 4.622884e-01 -9.883564e-01 -9.922978e-01 
+Debug: sub_ele 0, gp 28, overlay_ele 342, opp_para: 4.633871e-01 -9.838139e-01 -9.999571e-01 
+Debug: sub_ele 0, gp 29, overlay_ele 342, opp_para: 4.632531e-01 -9.838154e-01 -9.990316e-01 
+Debug: sub_ele 0, gp 30, overlay_ele 342, opp_para: 4.628152e-01 -9.838202e-01 -9.960083e-01 
+Debug: sub_ele 0, gp 31, overlay_ele 342, opp_para: 4.622781e-01 -9.838262e-01 -9.922977e-01 
+Debug: sub_ele 0, gp 32, overlay_ele 342, opp_para: 4.634019e-01 -9.987928e-01 -9.999571e-01 
+Debug: sub_ele 0, gp 33, overlay_ele 342, opp_para: 4.631298e-01 -9.987930e-01 -9.990312e-01 
+Debug: sub_ele 0, gp 34, overlay_ele 342, opp_para: 4.622409e-01 -9.987937e-01 -9.960067e-01 
+Debug: sub_ele 0, gp 35, overlay_ele 342, opp_para: 4.611504e-01 -9.987946e-01 -9.922928e-01 
+Debug: sub_ele 0, gp 36, overlay_ele 342, opp_para: 4.633994e-01 -9.942614e-01 -9.999571e-01 
+Debug: sub_ele 0, gp 37, overlay_ele 342, opp_para: 4.631272e-01 -9.942624e-01 -9.990312e-01 
+Debug: sub_ele 0, gp 38, overlay_ele 342, opp_para: 4.622383e-01 -9.942659e-01 -9.960067e-01 
+Debug: sub_ele 0, gp 39, overlay_ele 342, opp_para: 4.611478e-01 -9.942702e-01 -9.922928e-01 
+Debug: sub_ele 0, gp 40, overlay_ele 342, opp_para: 4.633910e-01 -9.883476e-01 -9.999571e-01 
+Debug: sub_ele 0, gp 41, overlay_ele 342, opp_para: 4.631189e-01 -9.883498e-01 -9.990312e-01 
+Debug: sub_ele 0, gp 42, overlay_ele 342, opp_para: 4.622299e-01 -9.883569e-01 -9.960067e-01 
+Debug: sub_ele 0, gp 43, overlay_ele 342, opp_para: 4.611395e-01 -9.883656e-01 -9.922928e-01 
+Debug: sub_ele 0, gp 44, overlay_ele 342, opp_para: 4.633807e-01 -9.838140e-01 -9.999571e-01 
+Debug: sub_ele 0, gp 45, overlay_ele 342, opp_para: 4.631086e-01 -9.838170e-01 -9.990312e-01 
+Debug: sub_ele 0, gp 46, overlay_ele 342, opp_para: 4.622197e-01 -9.838268e-01 -9.960067e-01 
+Debug: sub_ele 0, gp 47, overlay_ele 342, opp_para: 4.611292e-01 -9.838389e-01 -9.922927e-01 
+Debug: sub_ele 0, gp 48, overlay_ele 342, opp_para: 4.633970e-01 -9.987928e-01 -9.999571e-01 
+Debug: sub_ele 0, gp 49, overlay_ele 342, opp_para: 4.630190e-01 -9.987931e-01 -9.990309e-01 
+Debug: sub_ele 0, gp 50, overlay_ele 342, opp_para: 4.617844e-01 -9.987941e-01 -9.960055e-01 
+Debug: sub_ele 0, gp 51, overlay_ele 342, opp_para: 4.602698e-01 -9.987953e-01 -9.922890e-01 
+Debug: sub_ele 0, gp 52, overlay_ele 342, opp_para: 4.633945e-01 -9.942614e-01 -9.999571e-01 
+Debug: sub_ele 0, gp 53, overlay_ele 342, opp_para: 4.630165e-01 -9.942629e-01 -9.990309e-01 
+Debug: sub_ele 0, gp 54, overlay_ele 342, opp_para: 4.617818e-01 -9.942677e-01 -9.960055e-01 
+Debug: sub_ele 0, gp 55, overlay_ele 342, opp_para: 4.602673e-01 -9.942736e-01 -9.922890e-01 
+Debug: sub_ele 0, gp 56, overlay_ele 342, opp_para: 4.633861e-01 -9.883477e-01 -9.999571e-01 
+Debug: sub_ele 0, gp 57, overlay_ele 342, opp_para: 4.630081e-01 -9.883507e-01 -9.990309e-01 
+Debug: sub_ele 0, gp 58, overlay_ele 342, opp_para: 4.617735e-01 -9.883605e-01 -9.960055e-01 
+Debug: sub_ele 0, gp 59, overlay_ele 342, opp_para: 4.602589e-01 -9.883726e-01 -9.922889e-01 
+Debug: sub_ele 0, gp 60, overlay_ele 342, opp_para: 4.633758e-01 -9.838140e-01 -9.999571e-01 
+Debug: sub_ele 0, gp 61, overlay_ele 342, opp_para: 4.629978e-01 -9.838182e-01 -9.990309e-01 
+Debug: sub_ele 0, gp 62, overlay_ele 342, opp_para: 4.617632e-01 -9.838319e-01 -9.960054e-01 
+Debug: sub_ele 0, gp 63, overlay_ele 342, opp_para: 4.602487e-01 -9.838486e-01 -9.922889e-01 
