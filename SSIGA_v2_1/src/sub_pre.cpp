@@ -3316,13 +3316,13 @@ void geo_trans_ele_patch_coord(double* xi_patch, const double* xi_elem, int patc
 int ele_check(int patch_n, double *para_coord, information *info)
 {
 	// para_coordが0.0~1.0の外にある場合は、1.0に丸める
-	for (int i = 0; i < info->DIMENSION; i++)
-	{
-		if (para_coord[i] - 0.0 < MERGE_ERROR)
-			para_coord[i] = 0.0;
-		if (para_coord[i] - 1.0 > MERGE_ERROR)
-			para_coord[i] = 1.0;
-	}
+	// for (int i = 0; i < info->DIMENSION; i++)
+	// {
+	// 	if (para_coord[i] - 0.0 < MERGE_ERROR)
+	// 		para_coord[i] = 0.0;
+	// 	if (para_coord[i] - 1.0 > MERGE_ERROR)
+	// 		para_coord[i] = 1.0;
+	// }
 
 	int line[MAX_DIMENSION] = {0};
 	for (int i = 0; i < info->DIMENSION; i++)
@@ -3379,13 +3379,13 @@ int ele_check(int patch_n, double *para_coord, information *info)
 int geo_ele_check(int patch_n, double *para_coord, information *info)
 {
 	// para_coordが0.0~1.0の外にある場合は、1.0に丸める
-	for (int i = 0; i < info->DIMENSION; i++)
-	{
-		if (para_coord[i] - 0.0 < MERGE_ERROR)
-			para_coord[i] = 0.0;
-		if (para_coord[i] - 1.0 > MERGE_ERROR)
-			para_coord[i] = 1.0;
-	}
+	// for (int i = 0; i < info->DIMENSION; i++)
+	// {
+	// 	if (para_coord[i] - 0.0 < MERGE_ERROR)
+	// 		para_coord[i] = 0.0;
+	// 	if (para_coord[i] - 1.0 > MERGE_ERROR)
+	// 		para_coord[i] = 1.0;
+	// }
 
 	int line[MAX_DIMENSION];
 	for (int i = 0; i < info->DIMENSION; i++)

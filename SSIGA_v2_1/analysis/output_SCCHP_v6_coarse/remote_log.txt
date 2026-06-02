@@ -1,7 +1,6 @@
 ﻿Perf mode: stat
 cd ./src && make -f Make_src
 make[1]: ディレクトリ `/home/oishi/SSIGA_v2_1/src' に入ります
-icpx -O3 -std=c++20 -qopenmp -qopenmp-simd -ipo -fp-model=precise -DMKL_ILP64 -fdiagnostics-color=always -fno-alias -ansi-alias -qopt-prefetch=5 -qopt-mem-layout-trans=3 -falign-functions=64 -funroll-loops -xCORE-AVX512 -mtune=native -qopt-zmm-usage=high -I/usr/include/hdf5/serial -Wall -Wextra -Wno-unused-parameter -MMD -MP -c sub_pre.cpp -o sub_pre.o
 icpx -O3 -std=c++20 -qopenmp -qopenmp-simd -ipo -fp-model=precise -DMKL_ILP64 -fdiagnostics-color=always -fno-alias -ansi-alias -qopt-prefetch=5 -qopt-mem-layout-trans=3 -falign-functions=64 -funroll-loops -xCORE-AVX512 -mtune=native -qopt-zmm-usage=high -I/usr/include/hdf5/serial -Wall -Wextra -Wno-unused-parameter -MMD -MP -c sub_frac.cpp -o sub_frac.o
 icpx -O3 -std=c++20 -qopenmp -qopenmp-simd -ipo -fp-model=precise -DMKL_ILP64 -fdiagnostics-color=always -flto=auto -flto-jobs=48 -o SSIGA.x main.o sub_pre.o sub_solver.o sub_tool.o sub_post.o sub_MI3D.o sub_search.o class.o sub_frac.o -Wl,--start-group -lmkl_intel_ilp64 -lmkl_intel_thread -lmkl_core -Wl,--end-group -lpthread -lm -ldl -liomp5 -lhdf5_cpp -lhdf5 -L/usr/lib/x86_64-linux-gnu/hdf5/serial
 Build complete.
@@ -38,7 +37,7 @@ USE_EXTENDED_QUADRATURE: 1
 NUM_GAUSS_POINTS: 4
 NUM_GAUSS_POINTS_EXTENDED: 10
 FRACTURE_MODE: 1
-CALCLATE_DISPLACEMENT: 0
+CALCLATE_DISPLACEMENT: 1
 INTEGRAL_DOMAIN_TYPE: 5
 CRACK_TYPE: 0
 OUTPUT_FREE_SURFACE: 1
@@ -1883,76 +1882,290 @@ Geo_No_Control_point_ON_ELEMENT[87] = 27
 
 start Make INC
 start Preprocessing
-Displacement calculation is skipped.
 
-start reading displacement file.
+K_Whole_Size = 101166
+
+start Make_K_Whole_Ptr_Col
+start Make_connectivity
+start output_for_paraview_timestep
+start Make_F_Vec
+start calc K
+
+Calculating K matrix...
+[K matrix]:   0% ¦¦                               ¦¦ (116/11648 elements) [K matrix]:   1% ¦¦                               ¦¦ (232/11648 elements) [K matrix]:   2% ¦¦                               ¦¦ (348/11648 elements) [K matrix]:   3% ¦¦                               ¦¦ (464/11648 elements) [K matrix]:   4% ¦¦ █                             ¦¦ (580/11648 elements) [K matrix]:   5% ¦¦ █                             ¦¦ (696/11648 elements) [K matrix]:   6% ¦¦ █                             ¦¦ (812/11648 elements) [K matrix]:   7% ¦¦ ██                            ¦¦ (928/11648 elements) [K matrix]:   8% ¦¦ ██                            ¦¦ (1044/11648 elements) [K matrix]:   9% ¦¦ ██                            ¦¦ (1160/11648 elements) [K matrix]:  10% ¦¦ ███                           ¦¦ (1276/11648 elements) [K matrix]:  11% ¦¦ ███                           ¦¦ (1392/11648 elements) [K matrix]:  12% ¦¦ ███                           ¦¦ (1508/11648 elements) [K matrix]:  13% ¦¦ ███                           ¦¦ (1624/11648 elements) [K matrix]:  14% ¦¦ ████                          ¦¦ (1740/11648 elements) [K matrix]:  15% ¦¦ ████                          ¦¦ (1856/11648 elements) [K matrix]:  16% ¦¦ ████                          ¦¦ (1972/11648 elements) [K matrix]:  17% ¦¦ █████                         ¦¦ (2088/11648 elements) [K matrix]:  18% ¦¦ █████                         ¦¦ (2204/11648 elements) [K matrix]:  19% ¦¦ █████                         ¦¦ (2320/11648 elements) [K matrix]:  20% ¦¦ ██████                        ¦¦ (2436/11648 elements) [K matrix]:  21% ¦¦ ██████                        ¦¦ (2552/11648 elements) [K matrix]:  22% ¦¦ ██████                        ¦¦ (2668/11648 elements) [K matrix]:  23% ¦¦ ██████                        ¦¦ (2784/11648 elements) [K matrix]:  24% ¦¦ ███████                       ¦¦ (2900/11648 elements) [K matrix]:  25% ¦¦ ███████                       ¦¦ (3016/11648 elements) [K matrix]:  26% ¦¦ ███████                       ¦¦ (3132/11648 elements) [K matrix]:  27% ¦¦ ████████                      ¦¦ (3248/11648 elements) [K matrix]:  28% ¦¦ ████████                      ¦¦ (3364/11648 elements) [K matrix]:  29% ¦¦ ████████                      ¦¦ (3480/11648 elements) [K matrix]:  30% ¦¦ █████████                     ¦¦ (3596/11648 elements) [K matrix]:  31% ¦¦ █████████                     ¦¦ (3712/11648 elements) [K matrix]:  32% ¦¦ █████████                     ¦¦ (3828/11648 elements) [K matrix]:  33% ¦¦ █████████                     ¦¦ (3944/11648 elements) [K matrix]:  34% ¦¦ ██████████                    ¦¦ (4060/11648 elements) [K matrix]:  35% ¦¦ ██████████                    ¦¦ (4176/11648 elements) [K matrix]:  36% ¦¦ ██████████                    ¦¦ (4292/11648 elements) [K matrix]:  37% ¦¦ ███████████                   ¦¦ (4408/11648 elements) [K matrix]:  38% ¦¦ ███████████                   ¦¦ (4524/11648 elements) [K matrix]:  39% ¦¦ ███████████                   ¦¦ (4640/11648 elements) [K matrix]:  40% ¦¦ ████████████                  ¦¦ (4756/11648 elements) [K matrix]:  41% ¦¦ ████████████                  ¦¦ (4872/11648 elements) [K matrix]:  42% ¦¦ ████████████                  ¦¦ (4988/11648 elements) [K matrix]:  43% ¦¦ ████████████                  ¦¦ (5104/11648 elements) [K matrix]:  44% ¦¦ █████████████                 ¦¦ (5220/11648 elements) [K matrix]:  45% ¦¦ █████████████                 ¦¦ (5336/11648 elements) [K matrix]:  46% ¦¦ █████████████                 ¦¦ (5452/11648 elements) [K matrix]:  47% ¦¦ ██████████████                ¦¦ (5568/11648 elements) [K matrix]:  48% ¦¦ ██████████████                ¦¦ (5684/11648 elements) [K matrix]:  49% ¦¦ ██████████████                ¦¦ (5800/11648 elements) [K matrix]:  50% ¦¦ ███████████████               ¦¦ (5916/11648 elements) [K matrix]:  51% ¦¦ ███████████████               ¦¦ (6032/11648 elements) [K matrix]:  52% ¦¦ ███████████████               ¦¦ (6148/11648 elements) [K matrix]:  53% ¦¦ ███████████████               ¦¦ (6264/11648 elements) [K matrix]:  54% ¦¦ ████████████████              ¦¦ (6380/11648 elements) [K matrix]:  55% ¦¦ ████████████████              ¦¦ (6496/11648 elements) [K matrix]:  56% ¦¦ ████████████████              ¦¦ (6612/11648 elements) [K matrix]:  57% ¦¦ █████████████████             ¦¦ (6728/11648 elements) [K matrix]:  58% ¦¦ █████████████████             ¦¦ (6844/11648 elements) [K matrix]:  59% ¦¦ █████████████████             ¦¦ (6960/11648 elements) [K matrix]:  60% ¦¦ ██████████████████            ¦¦ (7076/11648 elements) [K matrix]:  61% ¦¦ ██████████████████            ¦¦ (7192/11648 elements) [K matrix]:  62% ¦¦ ██████████████████            ¦¦ (7308/11648 elements) [K matrix]:  63% ¦¦ ██████████████████            ¦¦ (7424/11648 elements) [K matrix]:  64% ¦¦ ███████████████████           ¦¦ (7540/11648 elements) [K matrix]:  65% ¦¦ ███████████████████           ¦¦ (7656/11648 elements) [K matrix]:  66% ¦¦ ███████████████████           ¦¦ (7772/11648 elements) [K matrix]:  67% ¦¦ ████████████████████          ¦¦ (7888/11648 elements) [K matrix]:  68% ¦¦ ████████████████████          ¦¦ (8004/11648 elements) [K matrix]:  69% ¦¦ ████████████████████          ¦¦ (8120/11648 elements) [K matrix]:  70% ¦¦ █████████████████████         ¦¦ (8236/11648 elements) [K matrix]:  71% ¦¦ █████████████████████         ¦¦ (8352/11648 elements) [K matrix]:  72% ¦¦ █████████████████████         ¦¦ (8468/11648 elements) [K matrix]:  73% ¦¦ █████████████████████         ¦¦ (8584/11648 elements) [K matrix]:  74% ¦¦ ██████████████████████        ¦¦ (8700/11648 elements) [K matrix]:  75% ¦¦ ██████████████████████        ¦¦ (8816/11648 elements) [K matrix]:  76% ¦¦ ██████████████████████        ¦¦ (8932/11648 elements) [K matrix]:  77% ¦¦ ███████████████████████       ¦¦ (9048/11648 elements) [K matrix]:  78% ¦¦ ███████████████████████       ¦¦ (9164/11648 elements) [K matrix]:  79% ¦¦ ███████████████████████       ¦¦ (9280/11648 elements) [K matrix]:  80% ¦¦ ████████████████████████      ¦¦ (9396/11648 elements) [K matrix]:  81% ¦¦ ████████████████████████      ¦¦ (9512/11648 elements) [K matrix]:  82% ¦¦ ████████████████████████      ¦¦ (9628/11648 elements) [K matrix]:  83% ¦¦ ████████████████████████      ¦¦ (9744/11648 elements) [K matrix]:  84% ¦¦ █████████████████████████     ¦¦ (9860/11648 elements) [K matrix]:  85% ¦¦ █████████████████████████     ¦¦ (9976/11648 elements) [K matrix]:  86% ¦¦ █████████████████████████     ¦¦ (10092/11648 elements) [K matrix]:  87% ¦¦ ██████████████████████████    ¦¦ (10208/11648 elements) [K matrix]:  88% ¦¦ ██████████████████████████    ¦¦ (10324/11648 elements) [K matrix]:  89% ¦¦ ██████████████████████████    ¦¦ (10440/11648 elements) [K matrix]:  90% ¦¦ ███████████████████████████   ¦¦ (10556/11648 elements) [K matrix]:  91% ¦¦ ███████████████████████████   ¦¦ (10672/11648 elements) [K matrix]:  92% ¦¦ ███████████████████████████   ¦¦ (10788/11648 elements) [K matrix]:  93% ¦¦ ███████████████████████████   ¦¦ (10904/11648 elements) [K matrix]:  94% ¦¦ ████████████████████████████  ¦¦ (11020/11648 elements) [K matrix]:  95% ¦¦ ████████████████████████████  ¦¦ (11136/11648 elements) [K matrix]:  96% ¦¦ ████████████████████████████  ¦¦ (11252/11648 elements) [K matrix]:  97% ¦¦ █████████████████████████████ ¦¦ (11368/11648 elements) [K matrix]:  98% ¦¦ █████████████████████████████ ¦¦ (11484/11648 elements) [K matrix]:  99% ¦¦ █████████████████████████████ ¦¦ (11600/11648 elements) [K matrix]: 100% ¦¦ ██████████████████████████████¦¦ (11648/11648 elements) 
+K matrix calculation completed.
+Calculating coupled K matrix...
+[Coupled K]:   0% ¦¦                               ¦¦ (116/11648 elements) [Coupled K]:   1% ¦¦                               ¦¦ (232/11648 elements) [Coupled K]:   2% ¦¦                               ¦¦ (348/11648 elements) [Coupled K]:   3% ¦¦                               ¦¦ (464/11648 elements) [Coupled K]:   4% ¦¦ █                             ¦¦ (580/11648 elements) [Coupled K]:   5% ¦¦ █                             ¦¦ (696/11648 elements) [Coupled K]:   6% ¦¦ █                             ¦¦ (812/11648 elements) [Coupled K]:   7% ¦¦ ██                            ¦¦ (928/11648 elements) [Coupled K]:   8% ¦¦ ██                            ¦¦ (1044/11648 elements) [Coupled K]:   9% ¦¦ ██                            ¦¦ (1160/11648 elements) [Coupled K]:  10% ¦¦ ███                           ¦¦ (1276/11648 elements) [Coupled K]:  11% ¦¦ ███                           ¦¦ (1392/11648 elements) [Coupled K]:  12% ¦¦ ███                           ¦¦ (1508/11648 elements) [Coupled K]:  13% ¦¦ ███                           ¦¦ (1624/11648 elements) [Coupled K]:  14% ¦¦ ████                          ¦¦ (1740/11648 elements) [Coupled K]:  15% ¦¦ ████                          ¦¦ (1856/11648 elements) [Coupled K]:  16% ¦¦ ████                          ¦¦ (1972/11648 elements) [Coupled K]:  17% ¦¦ █████                         ¦¦ (2088/11648 elements) [Coupled K]:  18% ¦¦ █████                         ¦¦ (2204/11648 elements) [Coupled K]:  19% ¦¦ █████                         ¦¦ (2320/11648 elements) [Coupled K]:  20% ¦¦ ██████                        ¦¦ (2436/11648 elements) [Coupled K]:  21% ¦¦ ██████                        ¦¦ (2552/11648 elements) [Coupled K]:  22% ¦¦ ██████                        ¦¦ (2668/11648 elements) [Coupled K]:  23% ¦¦ ██████                        ¦¦ (2784/11648 elements) [Coupled K]:  24% ¦¦ ███████                       ¦¦ (2900/11648 elements) [Coupled K]:  25% ¦¦ ███████                       ¦¦ (3016/11648 elements) [Coupled K]:  26% ¦¦ ███████                       ¦¦ (3132/11648 elements) [Coupled K]:  27% ¦¦ ████████                      ¦¦ (3248/11648 elements) [Coupled K]:  28% ¦¦ ████████                      ¦¦ (3364/11648 elements) [Coupled K]:  29% ¦¦ ████████                      ¦¦ (3480/11648 elements) [Coupled K]:  30% ¦¦ █████████                     ¦¦ (3596/11648 elements) [Coupled K]:  31% ¦¦ █████████                     ¦¦ (3712/11648 elements) [Coupled K]:  32% ¦¦ █████████                     ¦¦ (3828/11648 elements) [Coupled K]:  33% ¦¦ █████████                     ¦¦ (3944/11648 elements) [Coupled K]:  34% ¦¦ ██████████                    ¦¦ (4060/11648 elements) [Coupled K]:  35% ¦¦ ██████████                    ¦¦ (4176/11648 elements) [Coupled K]:  36% ¦¦ ██████████                    ¦¦ (4292/11648 elements) [Coupled K]:  37% ¦¦ ███████████                   ¦¦ (4408/11648 elements) [Coupled K]:  38% ¦¦ ███████████                   ¦¦ (4524/11648 elements) [Coupled K]:  39% ¦¦ ███████████                   ¦¦ (4640/11648 elements) [Coupled K]:  40% ¦¦ ████████████                  ¦¦ (4756/11648 elements) [Coupled K]:  41% ¦¦ ████████████                  ¦¦ (4872/11648 elements) [Coupled K]:  42% ¦¦ ████████████                  ¦¦ (4988/11648 elements) [Coupled K]:  43% ¦¦ ████████████                  ¦¦ (5104/11648 elements) [Coupled K]:  44% ¦¦ █████████████                 ¦¦ (5220/11648 elements) [Coupled K]:  45% ¦¦ █████████████                 ¦¦ (5336/11648 elements) [Coupled K]:  46% ¦¦ █████████████                 ¦¦ (5452/11648 elements) [Coupled K]:  47% ¦¦ ██████████████                ¦¦ (5568/11648 elements) [Coupled K]:  48% ¦¦ ██████████████                ¦¦ (5684/11648 elements) [Coupled K]:  49% ¦¦ ██████████████                ¦¦ (5800/11648 elements) [Coupled K]:  50% ¦¦ ███████████████               ¦¦ (5916/11648 elements) [Coupled K]:  51% ¦¦ ███████████████               ¦¦ (6032/11648 elements) [Coupled K]:  52% ¦¦ ███████████████               ¦¦ (6148/11648 elements) [Coupled K]:  53% ¦¦ ███████████████               ¦¦ (6264/11648 elements) [Coupled K]:  54% ¦¦ ████████████████              ¦¦ (6380/11648 elements) [Coupled K]:  55% ¦¦ ████████████████              ¦¦ (6496/11648 elements) [Coupled K]:  56% ¦¦ ████████████████              ¦¦ (6612/11648 elements) [Coupled K]:  57% ¦¦ █████████████████             ¦¦ (6728/11648 elements) [Coupled K]:  58% ¦¦ █████████████████             ¦¦ (6844/11648 elements) [Coupled K]:  59% ¦¦ █████████████████             ¦¦ (6960/11648 elements) [Coupled K]:  60% ¦¦ ██████████████████            ¦¦ (7076/11648 elements) [Coupled K]:  61% ¦¦ ██████████████████            ¦¦ (7192/11648 elements) [Coupled K]:  62% ¦¦ ██████████████████            ¦¦ (7308/11648 elements) [Coupled K]:  63% ¦¦ ██████████████████            ¦¦ (7424/11648 elements) [Coupled K]:  64% ¦¦ ███████████████████           ¦¦ (7540/11648 elements) [Coupled K]:  65% ¦¦ ███████████████████           ¦¦ (7656/11648 elements) [Coupled K]:  66% ¦¦ ███████████████████           ¦¦ (7772/11648 elements) [Coupled K]:  67% ¦¦ ████████████████████          ¦¦ (7888/11648 elements) [Coupled K]:  68% ¦¦ ████████████████████          ¦¦ (8004/11648 elements) [Coupled K]:  69% ¦¦ ████████████████████          ¦¦ (8120/11648 elements) [Coupled K]:  70% ¦¦ █████████████████████         ¦¦ (8236/11648 elements) [Coupled K]:  71% ¦¦ █████████████████████         ¦¦ (8352/11648 elements) [Coupled K]:  72% ¦¦ █████████████████████         ¦¦ (8468/11648 elements) [Coupled K]:  73% ¦¦ █████████████████████         ¦¦ (8584/11648 elements) [Coupled K]:  74% ¦¦ ██████████████████████        ¦¦ (8700/11648 elements) [Coupled K]:  75% ¦¦ ██████████████████████        ¦¦ (8816/11648 elements) [Coupled K]:  76% ¦¦ ██████████████████████        ¦¦ (8932/11648 elements) [Coupled K]:  77% ¦¦ ███████████████████████       ¦¦ (9048/11648 elements) [Coupled K]:  78% ¦¦ ███████████████████████       ¦¦ (9164/11648 elements) [Coupled K]:  79% ¦¦ ███████████████████████       ¦¦ (9280/11648 elements) [Coupled K]:  80% ¦¦ ████████████████████████      ¦¦ (9396/11648 elements) [Coupled K]:  81% ¦¦ ████████████████████████      ¦¦ (9512/11648 elements) [Coupled K]:  82% ¦¦ ████████████████████████      ¦¦ (9628/11648 elements) [Coupled K]:  83% ¦¦ ████████████████████████      ¦¦ (9744/11648 elements) [Coupled K]:  84% ¦¦ █████████████████████████     ¦¦ (9860/11648 elements) [Coupled K]:  85% ¦¦ █████████████████████████     ¦¦ (9976/11648 elements) [Coupled K]:  86% ¦¦ █████████████████████████     ¦¦ (10092/11648 elements) [Coupled K]:  87% ¦¦ ██████████████████████████    ¦¦ (10208/11648 elements) [Coupled K]:  88% ¦¦ ██████████████████████████    ¦¦ (10324/11648 elements) [Coupled K]:  89% ¦¦ ██████████████████████████    ¦¦ (10440/11648 elements) [Coupled K]:  90% ¦¦ ███████████████████████████   ¦¦ (10556/11648 elements) [Coupled K]:  91% ¦¦ ███████████████████████████   ¦¦ (10672/11648 elements) [Coupled K]:  92% ¦¦ ███████████████████████████   ¦¦ (10788/11648 elements) [Coupled K]:  93% ¦¦ ███████████████████████████   ¦¦ (10904/11648 elements) [Coupled K]:  94% ¦¦ ████████████████████████████  ¦¦ (11020/11648 elements) [Coupled K]:  95% ¦¦ ████████████████████████████  ¦¦ (11136/11648 elements) [Coupled K]:  96% ¦¦ ████████████████████████████  ¦¦ (11252/11648 elements) [Coupled K]:  97% ¦¦ █████████████████████████████ ¦¦ (11368/11648 elements) [Coupled K]:  98% ¦¦ █████████████████████████████ ¦¦ (11484/11648 elements) [Coupled K]:  99% ¦¦ █████████████████████████████ ¦¦ (11600/11648 elements) [Coupled K]: 100% ¦¦ ██████████████████████████████¦¦ (11648/11648 elements) 
+K matrix calculation completed.
+	Preprocess time:	87.643[s]
+
+start pardiso
+
+CSR verification OK: n=101166 nnz=56407491
+PARDISO: attempting symbolic factorization (nnz=56407491)...
+
+=== PARDISO: solving a symmetric indefinite system ===
+0-based array is turned ON
+PARDISO double precision computation is turned ON
+METIS algorithm at reorder step is turned ON
+Scaling is turned ON
+
+
+Summary: ( reordering phase )
+================
+
+Times:
+======
+Time spent in calculations of symmetric matrix portrait (fulladj): 0.857111 s
+Time spent in reordering of the initial matrix (reorder)         : 7.664779 s
+Time spent in symbolic factorization (symbfct)                   : 0.647483 s
+Time spent in data preparations for factorization (parlist)      : 0.005739 s
+Time spent in allocation of internal data structures (malloc)    : 0.018616 s
+Time spent in additional calculations                            : 4.128372 s
+Total time spent                                                 : 13.322100 s
+
+Statistics:
+===========
+Parallel Direct Factorization is running on 40 OpenMP
+
+< Linear system Ax = b >
+             number of equations:           101166
+             number of non-zeros in A:      56407491
+             number of non-zeros in A (%): 0.551147
+
+             number of right-hand sides:    1
+
+< Factors L and U >
+             number of columns for each panel: 64
+             number of independent subgraphs:  0
+< Preprocessing with state of the art partitioning metis>
+             number of supernodes:                    3862
+             size of largest supernode:               3612
+             number of non-zeros in L:                156211307
+             number of non-zeros in U:                1
+             number of non-zeros in L+U:              156211308
+=== PARDISO is running in In-Core mode, because iparam(60)=0 ===
+
+Percentage of computed non-zeros for LL^T factorization
+ 1 %  2 %  4 %  5 %  6 %  7 %  8 %  9 %  10 %  11 %  12 %  13 %  15 %  16 %  18 %  20 %  23 %  25 %  26 %  27 %  29 %  30 %  32 %  33 %  34 %  35 %  38 %  39 %  41 %  42 %  43 %  44 %  46 %  48 %  50 %  52 %  53 %  55 %  58 %  62 %  63 %  64 %  66 %  67 %  70 %  73 %  78 %  83 %  89 %  96 %  99 %  100 % 
+
+=== PARDISO: solving a symmetric indefinite system ===
+Single-level factorization algorithm is turned ON
+
+
+Summary: ( factorization phase )
+================
+
+Times:
+======
+Time spent in copying matrix to internal data structure (A to LU): 0.000000 s
+Time spent in factorization step (numfct)                        : 0.787003 s
+Time spent in allocation of internal data structures (malloc)    : 0.000872 s
+Time spent in additional calculations                            : 0.000005 s
+Total time spent                                                 : 0.787880 s
+
+Statistics:
+===========
+Parallel Direct Factorization is running on 40 OpenMP
+
+< Linear system Ax = b >
+             number of equations:           101166
+             number of non-zeros in A:      56407491
+             number of non-zeros in A (%): 0.551147
+
+             number of right-hand sides:    1
+
+< Factors L and U >
+             number of columns for each panel: 64
+             number of independent subgraphs:  0
+< Preprocessing with state of the art partitioning metis>
+             number of supernodes:                    3862
+             size of largest supernode:               3612
+             number of non-zeros in L:                156211307
+             number of non-zeros in U:                1
+             number of non-zeros in L+U:              156211308
+             gflop   for the numerical factorization: 295.189164
+
+             gflop/s for the numerical factorization: 375.080081
+
+
+=== PARDISO: solving a symmetric indefinite system ===
+
+
+Summary: ( solution phase )
+================
+
+Times:
+======
+Time spent in direct solver at solve step (solve)                : 0.062579 s
+Time spent in additional calculations                            : 0.236457 s
+Total time spent                                                 : 0.299036 s
+
+Statistics:
+===========
+Parallel Direct Factorization is running on 40 OpenMP
+
+< Linear system Ax = b >
+             number of equations:           101166
+             number of non-zeros in A:      56407491
+             number of non-zeros in A (%): 0.551147
+
+             number of right-hand sides:    1
+
+< Factors L and U >
+             number of columns for each panel: 64
+             number of independent subgraphs:  0
+< Preprocessing with state of the art partitioning metis>
+             number of supernodes:                    3862
+             size of largest supernode:               3612
+             number of non-zeros in L:                156211307
+             number of non-zeros in U:                1
+             number of non-zeros in L+U:              156211308
+             gflop   for the numerical factorization: 295.189164
+
+             gflop/s for the numerical factorization: 375.080081
+
+	solver time:	15.651[s]
+
+start postprocess
+
+start calc on element vertex
+
+start output_for_paraview_timestep
+
 start Fracture analysis
 
 start calc_J
 start allocation
 start init
 start J_sub_element
-Debug: sub_ele 0, gp 0, overlay_ele 342, opp_para: 4.634132e-01 -9.987928e-01 -9.999571e-01 
-Debug: sub_ele 0, gp 1, overlay_ele 342, opp_para: 4.633850e-01 -9.987928e-01 -9.990319e-01 
-Debug: sub_ele 0, gp 2, overlay_ele 342, opp_para: 4.632929e-01 -9.987928e-01 -9.960096e-01 
-Debug: sub_ele 0, gp 3, overlay_ele 342, opp_para: 4.631799e-01 -9.987929e-01 -9.923016e-01 
-Debug: sub_ele 0, gp 4, overlay_ele 342, opp_para: 4.634107e-01 -9.942613e-01 -9.999571e-01 
-Debug: sub_ele 0, gp 5, overlay_ele 342, opp_para: 4.633824e-01 -9.942614e-01 -9.990319e-01 
-Debug: sub_ele 0, gp 6, overlay_ele 342, opp_para: 4.632903e-01 -9.942618e-01 -9.960096e-01 
-Debug: sub_ele 0, gp 7, overlay_ele 342, opp_para: 4.631773e-01 -9.942622e-01 -9.923016e-01 
-Debug: sub_ele 0, gp 8, overlay_ele 342, opp_para: 4.634023e-01 -9.883475e-01 -9.999571e-01 
-Debug: sub_ele 0, gp 9, overlay_ele 342, opp_para: 4.633741e-01 -9.883478e-01 -9.990319e-01 
-Debug: sub_ele 0, gp 10, overlay_ele 342, opp_para: 4.632820e-01 -9.883485e-01 -9.960096e-01 
-Debug: sub_ele 0, gp 11, overlay_ele 342, opp_para: 4.631690e-01 -9.883494e-01 -9.923016e-01 
-Debug: sub_ele 0, gp 12, overlay_ele 342, opp_para: 4.633920e-01 -9.838138e-01 -9.999571e-01 
-Debug: sub_ele 0, gp 13, overlay_ele 342, opp_para: 4.633638e-01 -9.838141e-01 -9.990319e-01 
-Debug: sub_ele 0, gp 14, overlay_ele 342, opp_para: 4.632717e-01 -9.838152e-01 -9.960095e-01 
-Debug: sub_ele 0, gp 15, overlay_ele 342, opp_para: 4.631587e-01 -9.838164e-01 -9.923016e-01 
-Debug: sub_ele 0, gp 16, overlay_ele 342, opp_para: 4.634083e-01 -9.987928e-01 -9.999571e-01 
-Debug: sub_ele 0, gp 17, overlay_ele 342, opp_para: 4.632743e-01 -9.987929e-01 -9.990316e-01 
-Debug: sub_ele 0, gp 18, overlay_ele 342, opp_para: 4.628364e-01 -9.987932e-01 -9.960083e-01 
-Debug: sub_ele 0, gp 19, overlay_ele 342, opp_para: 4.622993e-01 -9.987937e-01 -9.922978e-01 
-Debug: sub_ele 0, gp 20, overlay_ele 342, opp_para: 4.634057e-01 -9.942613e-01 -9.999571e-01 
-Debug: sub_ele 0, gp 21, overlay_ele 342, opp_para: 4.632717e-01 -9.942619e-01 -9.990316e-01 
-Debug: sub_ele 0, gp 22, overlay_ele 342, opp_para: 4.628339e-01 -9.942636e-01 -9.960083e-01 
-Debug: sub_ele 0, gp 23, overlay_ele 342, opp_para: 4.622967e-01 -9.942657e-01 -9.922978e-01 
-Debug: sub_ele 0, gp 24, overlay_ele 342, opp_para: 4.633974e-01 -9.883476e-01 -9.999571e-01 
-Debug: sub_ele 0, gp 25, overlay_ele 342, opp_para: 4.632633e-01 -9.883487e-01 -9.990316e-01 
-Debug: sub_ele 0, gp 26, overlay_ele 342, opp_para: 4.628255e-01 -9.883521e-01 -9.960083e-01 
-Debug: sub_ele 0, gp 27, overlay_ele 342, opp_para: 4.622884e-01 -9.883564e-01 -9.922978e-01 
-Debug: sub_ele 0, gp 28, overlay_ele 342, opp_para: 4.633871e-01 -9.838139e-01 -9.999571e-01 
-Debug: sub_ele 0, gp 29, overlay_ele 342, opp_para: 4.632531e-01 -9.838154e-01 -9.990316e-01 
-Debug: sub_ele 0, gp 30, overlay_ele 342, opp_para: 4.628152e-01 -9.838202e-01 -9.960083e-01 
-Debug: sub_ele 0, gp 31, overlay_ele 342, opp_para: 4.622781e-01 -9.838262e-01 -9.922977e-01 
-Debug: sub_ele 0, gp 32, overlay_ele 342, opp_para: 4.634019e-01 -9.987928e-01 -9.999571e-01 
-Debug: sub_ele 0, gp 33, overlay_ele 342, opp_para: 4.631298e-01 -9.987930e-01 -9.990312e-01 
-Debug: sub_ele 0, gp 34, overlay_ele 342, opp_para: 4.622409e-01 -9.987937e-01 -9.960067e-01 
-Debug: sub_ele 0, gp 35, overlay_ele 342, opp_para: 4.611504e-01 -9.987946e-01 -9.922928e-01 
-Debug: sub_ele 0, gp 36, overlay_ele 342, opp_para: 4.633994e-01 -9.942614e-01 -9.999571e-01 
-Debug: sub_ele 0, gp 37, overlay_ele 342, opp_para: 4.631272e-01 -9.942624e-01 -9.990312e-01 
-Debug: sub_ele 0, gp 38, overlay_ele 342, opp_para: 4.622383e-01 -9.942659e-01 -9.960067e-01 
-Debug: sub_ele 0, gp 39, overlay_ele 342, opp_para: 4.611478e-01 -9.942702e-01 -9.922928e-01 
-Debug: sub_ele 0, gp 40, overlay_ele 342, opp_para: 4.633910e-01 -9.883476e-01 -9.999571e-01 
-Debug: sub_ele 0, gp 41, overlay_ele 342, opp_para: 4.631189e-01 -9.883498e-01 -9.990312e-01 
-Debug: sub_ele 0, gp 42, overlay_ele 342, opp_para: 4.622299e-01 -9.883569e-01 -9.960067e-01 
-Debug: sub_ele 0, gp 43, overlay_ele 342, opp_para: 4.611395e-01 -9.883656e-01 -9.922928e-01 
-Debug: sub_ele 0, gp 44, overlay_ele 342, opp_para: 4.633807e-01 -9.838140e-01 -9.999571e-01 
-Debug: sub_ele 0, gp 45, overlay_ele 342, opp_para: 4.631086e-01 -9.838170e-01 -9.990312e-01 
-Debug: sub_ele 0, gp 46, overlay_ele 342, opp_para: 4.622197e-01 -9.838268e-01 -9.960067e-01 
-Debug: sub_ele 0, gp 47, overlay_ele 342, opp_para: 4.611292e-01 -9.838389e-01 -9.922927e-01 
-Debug: sub_ele 0, gp 48, overlay_ele 342, opp_para: 4.633970e-01 -9.987928e-01 -9.999571e-01 
-Debug: sub_ele 0, gp 49, overlay_ele 342, opp_para: 4.630190e-01 -9.987931e-01 -9.990309e-01 
-Debug: sub_ele 0, gp 50, overlay_ele 342, opp_para: 4.617844e-01 -9.987941e-01 -9.960055e-01 
-Debug: sub_ele 0, gp 51, overlay_ele 342, opp_para: 4.602698e-01 -9.987953e-01 -9.922890e-01 
-Debug: sub_ele 0, gp 52, overlay_ele 342, opp_para: 4.633945e-01 -9.942614e-01 -9.999571e-01 
-Debug: sub_ele 0, gp 53, overlay_ele 342, opp_para: 4.630165e-01 -9.942629e-01 -9.990309e-01 
-Debug: sub_ele 0, gp 54, overlay_ele 342, opp_para: 4.617818e-01 -9.942677e-01 -9.960055e-01 
-Debug: sub_ele 0, gp 55, overlay_ele 342, opp_para: 4.602673e-01 -9.942736e-01 -9.922890e-01 
-Debug: sub_ele 0, gp 56, overlay_ele 342, opp_para: 4.633861e-01 -9.883477e-01 -9.999571e-01 
-Debug: sub_ele 0, gp 57, overlay_ele 342, opp_para: 4.630081e-01 -9.883507e-01 -9.990309e-01 
-Debug: sub_ele 0, gp 58, overlay_ele 342, opp_para: 4.617735e-01 -9.883605e-01 -9.960055e-01 
-Debug: sub_ele 0, gp 59, overlay_ele 342, opp_para: 4.602589e-01 -9.883726e-01 -9.922889e-01 
-Debug: sub_ele 0, gp 60, overlay_ele 342, opp_para: 4.633758e-01 -9.838140e-01 -9.999571e-01 
-Debug: sub_ele 0, gp 61, overlay_ele 342, opp_para: 4.629978e-01 -9.838182e-01 -9.990309e-01 
-Debug: sub_ele 0, gp 62, overlay_ele 342, opp_para: 4.617632e-01 -9.838319e-01 -9.960054e-01 
-Debug: sub_ele 0, gp 63, overlay_ele 342, opp_para: 4.602487e-01 -9.838486e-01 -9.922889e-01 
+i: 0 fs: 0 (x,y,θ,K,J): 2.699999999999981e+00 -5.486436638066782e-16 -1.164258014545086e-14 9.528422012227207e-01 4.010662703845501e-06
+i: 0 j: 0 (x,y,θ,K,J): 2.699974786122981e+00 3.478873271954877e-03 7.382463223834550e-02 9.529573968970789e-01 4.011632515892134e-06
+i: 0 j: 1 (x,y,θ,K,J): 2.699772700274452e+00 1.044488400267633e-02 2.216648775812903e-01 9.533024230282110e-01 4.014537931426344e-06
+i: 0 j: 2 (x,y,θ,K,J): 2.699367610822638e+00 1.742075826582754e-02 3.697614447171333e-01 9.540151748101334e-01 4.020543242373246e-06
+i: 0 j: 3 (x,y,θ,K,J): 2.698758634629060e+00 2.440509823723368e-02 5.181163646324233e-01 9.550924769929638e-01 4.029628602154297e-06
+i: 0 j: 4 (x,y,θ,K,J): 2.697944967638696e+00 3.139649388293719e-02 6.667316846499780e-01 9.565308002995031e-01 4.041774594410986e-06
+i: 0 j: 5 (x,y,θ,K,J): 2.696925886038946e+00 3.839352384243911e-02 8.156094685218960e-01 9.583262912404010e-01 4.056962355529852e-06
+i: 0 j: 6 (x,y,θ,K,J): 2.695700747345515e+00 4.539475633161763e-02 9.647517965226585e-01 9.604905542033866e-01 4.075307355775122e-06
+i: 0 j: 7 (x,y,θ,K,J): 2.694268991412910e+00 5.239875006420921e-02 1.114160765542320e+00 9.629885975502268e-01 4.096533036411140e-06
+i: 0 j: 8 (x,y,θ,K,J): 2.692630141367282e+00 5.940405519068659e-02 1.263838489179743e+00 9.658280369311101e-01 4.120726481549531e-06
+i: 0 j: 9 (x,y,θ,K,J): 2.690783804459614e+00 6.640921425332395e-02 1.413787097835878e+00 9.690063602601444e-01 4.147891877982513e-06
+i: 0 j: 10 (x,y,θ,K,J): 2.688729672837233e+00 7.341276315619338e-02 1.564008738807036e+00 9.725001819544429e-01 4.177856842477166e-06
+i: 0 j: 11 (x,y,θ,K,J): 2.686467524231904e+00 8.041323214880006e-02 1.714505576378226e+00 9.763001957978248e-01 4.210570319449187e-06
+i: 0 j: 12 (x,y,θ,K,J): 2.683997222562773e+00 8.740914682201253e-02 1.865279791916344e+00 9.804275831547370e-01 4.246246619843113e-06
+i: 0 j: 13 (x,y,θ,K,J): 2.681318718452739e+00 9.439902911493166e-02 2.016333583963474e+00 9.848490182471905e-01 4.284631581338029e-06
+i: 0 j: 14 (x,y,θ,K,J): 2.678432049656810e+00 1.013813983312808e-01 2.167669168329994e+00 9.895398878205035e-01 4.325544478276268e-06
+i: 0 j: 15 (x,y,θ,K,J): 2.675337341401336e+00 1.083547721638971e-01 2.319288778187696e+00 9.945044944557057e-01 4.369056613777984e-06
+i: 0 j: 16 (x,y,θ,K,J): 2.672034806633035e+00 1.153176677258558e-01 2.471194664162703e+00 9.997307636745710e-01 4.415097358504759e-06
+i: 0 j: 17 (x,y,θ,K,J): 2.668524746177003e+00 1.222686025867562e-01 2.623389094428323e+00 1.005206926368165e+00 4.463598436819735e-06
+i: 0 j: 18 (x,y,θ,K,J): 2.664807548803010e+00 1.292060958126625e-01 2.775874354797689e+00 1.010926599795752e+00 4.514539111936340e-06
+i: 0 j: 19 (x,y,θ,K,J): 2.660883691199555e+00 1.361286690081906e-01 2.928652748816261e+00 1.016894272590937e+00 4.567996626610234e-06
+i: 0 j: 20 (x,y,θ,K,J): 2.656753737855427e+00 1.430348473592150e-01 3.081726597854130e+00 1.023052409290301e+00 4.623490151751296e-06
+i: 0 j: 21 (x,y,θ,K,J): 2.652418340848543e+00 1.499231606746524e-01 3.235098241197950e+00 1.029433909188399e+00 4.681349989233432e-06
+i: 0 j: 22 (x,y,θ,K,J): 2.647878239542160e+00 1.567921444258036e-01 3.388770036142829e+00 1.036017366228056e+00 4.741417983712465e-06
+i: 0 j: 23 (x,y,θ,K,J): 2.643134260188667e+00 1.636403407816952e-01 3.542744358083679e+00 1.042789491621952e+00 4.803606945105941e-06
+i: 0 j: 24 (x,y,θ,K,J): 2.638187315441327e+00 1.704662996389062e-01 3.697023600606458e+00 1.049737564522819e+00 4.867832759596953e-06
+i: 0 j: 25 (x,y,θ,K,J): 2.633038403774635e+00 1.772685796443425e-01 3.851610175578899e+00 1.056878953767730e+00 4.934290009003039e-06
+i: 0 j: 26 (x,y,θ,K,J): 2.627688608813928e+00 1.840457492094487e-01 4.006506513240942e+00 1.064124558334695e+00 5.002177567196206e-06
+i: 0 j: 27 (x,y,θ,K,J): 2.622139098575331e+00 1.907963875143603e-01 4.161715062294664e+00 1.071511620556246e+00 5.071868005913766e-06
+i: 0 j: 28 (x,y,θ,K,J): 2.616391124617051e+00 1.975190855005199e-01 4.317238289993871e+00 1.079029832759373e+00 5.143290756243188e-06
+i: 0 j: 29 (x,y,θ,K,J): 2.610446021103366e+00 2.042124468502943e-01 4.473078682233090e+00 1.086669494887293e+00 5.216378824844326e-06
+i: 0 j: 30 (x,y,θ,K,J): 2.604305203782750e+00 2.108750889521688e-01 4.629238743636071e+00 1.094456460612184e+00 5.291406792232675e-06
+i: 0 j: 31 (x,y,θ,K,J): 2.597970168881784e+00 2.175056438501219e-01 4.785720997643775e+00 1.102416247983486e+00 5.368653598419266e-06
+i: 0 j: 32 (x,y,θ,K,J): 2.591442491916626e+00 2.241027591758094e-01 4.942527986601677e+00 1.110445671589193e+00 5.447143332483337e-06
+i: 0 j: 33 (x,y,θ,K,J): 2.584723826423983e+00 2.306650990622330e-01 5.099662271846496e+00 1.118576403056021e+00 5.527203806898582e-06
+i: 0 j: 34 (x,y,θ,K,J): 2.577815902613724e+00 2.371913450376116e-01 5.257126433792250e+00 1.126805680825117e+00 5.608829361792127e-06
+i: 0 j: 35 (x,y,θ,K,J): 2.570720525945320e+00 2.436801968981964e-01 5.414923072015513e+00 1.135126659907219e+00 5.691972844510813e-06
+i: 0 j: 36 (x,y,θ,K,J): 2.563439575630563e+00 2.501303735588514e-01 5.573054805340016e+00 1.143532915690767e+00 5.776589571039250e-06
+i: 0 j: 37 (x,y,θ,K,J): 2.555975003065018e+00 2.565406138802317e-01 5.731524271920316e+00 1.152027374900306e+00 5.862728330062715e-06
+i: 0 j: 38 (x,y,θ,K,J): 2.548328830190905e+00 2.629096774714807e-01 5.890334129324766e+00 1.160566466517377e+00 5.949962214156379e-06
+i: 0 j: 39 (x,y,θ,K,J): 2.540503147794139e+00 2.692363454673891e-01 6.049487054617471e+00 1.169160011864282e+00 6.038402773503227e-06
+i: 0 j: 40 (x,y,θ,K,J): 2.532500113738412e+00 2.755194212790339e-01 6.208985744439295e+00 1.177873001833261e+00 6.128738716929144e-06
+i: 0 j: 41 (x,y,θ,K,J): 2.524321951139299e+00 2.817577313169774e-01 6.368832915087966e+00 1.186709936139490e+00 6.221044805846089e-06
+i: 0 j: 42 (x,y,θ,K,J): 2.515970946481450e+00 2.879501256861464e-01 6.529031302597045e+00 1.195613206246472e+00 6.314741526433891e-06
+i: 0 j: 43 (x,y,θ,K,J): 2.507449447682025e+00 2.940954788515951e-01 6.689583662813847e+00 1.204576837843983e+00 6.409780951581990e-06
+i: 0 j: 44 (x,y,θ,K,J): 2.498759862103581e+00 3.001926902744029e-01 6.850492771476206e+00 1.213588946016405e+00 6.506049991275827e-06
+i: 0 j: 45 (x,y,θ,K,J): 2.489904654519784e+00 3.062406850170376e-01 7.011761424287990e+00 1.222644895038373e+00 6.603510149614991e-06
+i: 0 j: 46 (x,y,θ,K,J): 2.480886345037212e+00 3.122384143175647e-01 7.173392436993452e+00 1.231745605383682e+00 6.702181966541905e-06
+i: 0 j: 47 (x,y,θ,K,J): 2.471707506976719e+00 3.181848561321587e-01 7.335388645450147e+00 1.240886984707599e+00 6.802031373899095e-06
+i: 0 j: 48 (x,y,θ,K,J): 2.462370764717803e+00 3.240790156454422e-01 7.497752905700586e+00 1.250065666018087e+00 6.903031039393647e-06
+i: 0 j: 49 (x,y,θ,K,J): 2.452878791509459e+00 3.299199257482338e-01 7.660488094042321e+00 1.259278159931649e+00 7.005151216085266e-06
+i: 1 j: 0 (x,y,θ,K,J): 2.440158417006281e+00 3.375220527855163e-01 7.875166962300043e+00 1.270302601408070e+00 7.128342311753109e-06
+i: 1 j: 1 (x,y,θ,K,J): 2.423936062446719e+00 3.468672403193761e-01 8.143784375483074e+00 1.286595674439048e+00 7.312373159376671e-06
+i: 1 j: 2 (x,y,θ,K,J): 2.407197846455241e+00 3.561288215269939e-01 8.415484475411247e+00 1.302965961836658e+00 7.499638208308176e-06
+i: 1 j: 3 (x,y,θ,K,J): 2.389946580248743e+00 3.653003446271081e-01 8.690328134572463e+00 1.319475699237633e+00 7.690896456308557e-06
+i: 1 j: 4 (x,y,θ,K,J): 2.372185718195399e+00 3.743753500557844e-01 8.968377922148367e+00 1.336190852985649e+00 7.886987650477141e-06
+i: 1 j: 5 (x,y,θ,K,J): 2.353919364831167e+00 3.833473828198320e-01 9.249698162418163e+00 1.353180736906078e+00 8.088831442367213e-06
+i: 1 j: 6 (x,y,θ,K,J): 2.335152280155273e+00 3.922100051468834e-01 9.534354995431634e+00 1.370429175746744e+00 8.296355701075194e-06
+i: 1 j: 7 (x,y,θ,K,J): 2.315889883133527e+00 4.009568093887827e-01 9.822416440042794e+00 1.387963066683241e+00 8.510008455212809e-06
+i: 1 j: 8 (x,y,θ,K,J): 2.296138253345924e+00 4.095814311321664e-01 1.011395245939894e+01 1.406014777211902e+00 8.732808611173747e-06
+i: 1 j: 9 (x,y,θ,K,J): 2.275904130723276e+00 4.180775624675503e-01 1.040903502898285e+01 1.424663689030760e+00 8.966003060324692e-06
+i: 1 j: 10 (x,y,θ,K,J): 2.255194913326477e+00 4.264389653659507e-01 1.070773820730939e+01 1.443748776910141e+00 9.207832927450827e-06
+i: 1 j: 11 (x,y,θ,K,J): 2.234018653131596e+00 4.346594851100583e-01 1.101013820938105e+01 1.463231896654970e+00 9.458025732444353e-06
+i: 1 j: 12 (x,y,θ,K,J): 2.212384049794113e+00 4.427330637252985e-01 1.131631348301007e+01 1.483290136523630e+00 9.719107584895839e-06
+i: 1 j: 13 (x,y,θ,K,J): 2.190300442376134e+00 4.506537533547630e-01 1.162634478811822e+01 1.503796138008237e+00 9.989692089643320e-06
+i: 1 j: 14 (x,y,θ,K,J): 2.167777799031438e+00 4.584157295210238e-01 1.194031527912843e+01 1.524975909004968e+00 1.027306740762830e-05
+i: 1 j: 15 (x,y,θ,K,J): 2.144826704654520e+00 4.660133042172331e-01 1.225831059056527e+01 1.546846726145857e+00 1.056984787723894e-05
+i: 1 j: 16 (x,y,θ,K,J): 2.121458346511230e+00 4.734409387697283e-01 1.258041892598470e+01 1.569433212954267e+00 1.088077550985824e-05
+i: 1 j: 17 (x,y,θ,K,J): 2.097684497880328e+00 4.806932564145764e-01 1.290673115035582e+01 1.592760250710834e+00 1.120662886787593e-05
+i: 1 j: 18 (x,y,θ,K,J): 2.073517499746897e+00 4.877650545311176e-01 1.323734088602001e+01 1.616842291134265e+00 1.154807225681685e-05
+i: 1 j: 19 (x,y,θ,K,J): 2.048970240600056e+00 4.946513164766396e-01 1.357234461235520e+01 1.641475351983235e+00 1.190262918137535e-05
+i: 1 j: 20 (x,y,θ,K,J): 2.024056134398932e+00 5.013472229677879e-01 1.391184176927484e+01 1.667274245384891e+00 1.227971408973117e-05
+i: 1 j: 21 (x,y,θ,K,J): 1.998789096781793e+00 5.078481629562123e-01 1.425593486469257e+01 1.694387180418507e+00 1.268234274088148e-05
+i: 1 j: 22 (x,y,θ,K,J): 1.973183519603975e+00 5.141497439482443e-01 1.460472958608459e+01 1.722556802855549e+00 1.310754254635038e-05
+i: 1 j: 23 (x,y,θ,K,J): 1.947254243900443e+00 5.202478017211026e-01 1.495833491628243e+01 1.751839648041991e+00 1.355697746956902e-05
+i: 1 j: 24 (x,y,θ,K,J): 1.921016531378326e+00 5.261384093911615e-01 1.531686325362796e+01 1.782295007493951e+00 1.403244514224008e-05
+i: 1 j: 25 (x,y,θ,K,J): 1.894486034553698e+00 5.318178857932254e-01 1.568043053662192e+01 1.813766866830108e+00 1.453239186874632e-05
+i: 1 j: 26 (x,y,θ,K,J): 1.867678765654926e+00 5.372828031334688e-01 1.604915637319486e+01 1.846471287253631e+00 1.506119007443396e-05
+i: 1 j: 27 (x,y,θ,K,J): 1.840611064422209e+00 5.425299938827077e-01 1.642316417472646e+01 1.880583240691810e+00 1.562281517429869e-05
+i: 1 j: 28 (x,y,θ,K,J): 1.813299564939179e+00 5.475565568808965e-01 1.680258129493431e+01 1.916176462256042e+00 1.621978802620734e-05
+i: 1 j: 29 (x,y,θ,K,J): 1.785761161637818e+00 5.523598626282240e-01 1.718753917374797e+01 1.953328064061617e+00 1.685483678895213e-05
+i: 1 j: 30 (x,y,θ,K,J): 1.758012974622232e+00 5.569375577428011e-01 1.757817348627569e+01 1.991790150796729e+00 1.752513341931010e-05
+i: 1 j: 31 (x,y,θ,K,J): 1.730072314460039e+00 5.612875685696878e-01 1.797462429696247e+01 2.031161677318189e+00 1.822481631582279e-05
+i: 1 j: 32 (x,y,θ,K,J): 1.701956646592336e+00 5.654081039308515e-01 1.837703621902519e+01 2.071789686508869e+00 1.896118630904520e-05
+i: 1 j: 33 (x,y,θ,K,J): 1.673683555514179e+00 5.692976570105198e-01 1.878555857923728e+01 2.114183332797731e+00 1.974510563038130e-05
+i: 1 j: 34 (x,y,θ,K,J): 1.645270708877541e+00 5.729550063752887e-01 1.920034558811723e+01 2.158631665982947e+00 2.058407043271711e-05
+i: 1 j: 35 (x,y,θ,K,J): 1.616735821667495e+00 5.763792161331420e-01 1.962155651555489e+01 2.205435138347150e+00 2.148635522332643e-05
+i: 1 j: 36 (x,y,θ,K,J): 1.588096620600231e+00 5.795696352403091e-01 2.004935587188513e+01 2.254902921575930e+00 2.246104048065930e-05
+i: 1 j: 37 (x,y,θ,K,J): 1.559370808888230e+00 5.825258959694742e-01 2.048391359438950e+01 2.307323142648752e+00 2.351749260673926e-05
+i: 1 j: 38 (x,y,θ,K,J): 1.530576031513748e+00 5.852479115572949e-01 2.092540523917327e+01 2.362833088972856e+00 2.466267955230077e-05
+i: 1 j: 39 (x,y,θ,K,J): 1.501729841146594e+00 5.877358730534147e-01 2.137401217832548e+01 2.422062106076602e+00 2.591461266786371e-05
+i: 1 j: 40 (x,y,θ,K,J): 1.472849664836190e+00 5.899902453971594e-01 2.182992180222580e+01 2.486474463331268e+00 2.731128778488666e-05
+i: 1 j: 41 (x,y,θ,K,J): 1.443952771601116e+00 5.920117627518028e-01 2.229332772680763e+01 2.556071886882280e+00 2.886159309091284e-05
+i: 1 j: 42 (x,y,θ,K,J): 1.415056241031827e+00 5.938014231297505e-01 2.276443000552943e+01 2.629120826094045e+00 3.053481286195779e-05
+i: 1 j: 43 (x,y,θ,K,J): 1.386176933014127e+00 5.953604823450647e-01 2.324343534573490e+01 2.704856936427545e+00 3.231936141918246e-05
+i: 1 j: 44 (x,y,θ,K,J): 1.357331458672264e+00 5.966904473325546e-01 2.373055732900604e+01 2.782433243103814e+00 3.419980885737660e-05
+i: 1 j: 45 (x,y,θ,K,J): 1.328536152621469e+00 5.977930688750732e-01 2.422601663502214e+01 2.860988813699428e+00 3.615817409137410e-05
+i: 1 j: 46 (x,y,θ,K,J): 1.299807046610232e+00 5.986703337827134e-01 2.473004126833603e+01 2.939557029652215e+00 3.817138802342600e-05
+i: 1 j: 47 (x,y,θ,K,J): 1.271159844622914e+00 5.993244565693220e-01 2.524286678736359e+01 3.017098405778377e+00 4.021176378173245e-05
+i: 1 j: 48 (x,y,θ,K,J): 1.242609899503400e+00 5.997578706730607e-01 2.576473653475089e+01 3.092516673845764e+00 4.224723317472233e-05
+i: 1 j: 49 (x,y,θ,K,J): 1.214172191150503e+00 5.999732192687215e-01 2.629590186813569e+01 3.164670183161980e+00 4.424162623814065e-05
+i: 1 fs: 1 (x,y,θ,K,J): 1.199999999999998e+00 5.999999999999950e-01 2.656505117707783e+01 3.145876463658510e+00 4.371771960867243e-05
+
+	Postprocess time:	15.210[s]
+
+	All analysis time:	118.506[s]
+
+ Performance counter stats for 'numactl --localalloc stdbuf -oL ../../src/SSIGA.x ../input/SCCHP_v6_coarse/input_glo.txt ../input/SCCHP_v6_coarse/input_loc.txt ./option_SSIGA.ini':
+
+    3219076.767978      task-clock:u (msec)       #   25.738 CPUs utilized          
+                 0      context-switches:u        #    0.000 K/sec                  
+                 0      cpu-migrations:u          #    0.000 K/sec                  
+            58,289      page-faults:u             #    0.018 K/sec                  
+ 8,943,009,892,894      cycles:u                  #    2.778 GHz                      (61.54%)
+23,101,596,065,522      instructions:u            #    2.58  insn per cycle           (69.23%)
+ 3,637,509,911,935      branches:u                # 1129.985 M/sec                    (69.23%)
+     6,796,452,200      branch-misses:u           #    0.19% of all branches          (69.23%)
+ 6,344,677,741,460      L1-dcache-loads:u         # 1970.962 M/sec                    (69.23%)
+   160,008,761,318      L1-dcache-load-misses:u   #    2.52% of all L1-dcache hits    (69.23%)
+     1,843,173,951      LLC-loads:u               #    0.573 M/sec                    (69.23%)
+       719,769,230      LLC-load-misses:u         #   39.05% of all LL-cache hits     (69.23%)
+   <not supported>      L1-icache-loads:u                                           
+     6,907,102,708      L1-icache-load-misses:u                                       (69.23%)
+ 6,346,015,460,386      dTLB-loads:u              # 1971.377 M/sec                    (69.23%)
+        15,139,127      dTLB-load-misses:u        #    0.00% of all dTLB cache hits   (61.54%)
+        14,594,249      iTLB-loads:u              #    0.005 M/sec                    (61.54%)
+       135,793,824      iTLB-load-misses:u        #  930.46% of all iTLB cache hits   (61.54%)
+
+     125.070891875 seconds time elapsed
+
