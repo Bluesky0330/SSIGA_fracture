@@ -1,0 +1,19 @@
+<?xml version="1.0" ?>
+<Xdmf Version="2.0">
+  <Domain>
+    <Grid Name="ien">
+      <Topology TopologyType="Polyvertex" NumberOfElements="169">
+        <DataItem Reference="XML">/Xdmf/Domain/Grid/DataItem[@Name=&quot;ien&quot;]</DataItem>
+      </Topology>
+      <Geometry GeometryType="XY">
+        <DataItem Reference="XML">/Xdmf/Domain/Grid/DataItem[@Name=&quot;xyz&quot;]</DataItem>
+      </Geometry>
+      <DataItem Name="xyz" Dimensions="169 2" ItemType="Uniform" NumberType="Float" Precision="8" Format="Binary" Endian="Little">
+        bin/global_patch_cp_xyz.bin
+      </DataItem>
+      <DataItem Name="ien" Dimensions="169 1" ItemType="Uniform" NumberType="Int" Format="Binary" Endian="Little">
+        bin/global_patch_cp_ien.bin
+      </DataItem>
+    </Grid>
+  </Domain>
+</Xdmf>

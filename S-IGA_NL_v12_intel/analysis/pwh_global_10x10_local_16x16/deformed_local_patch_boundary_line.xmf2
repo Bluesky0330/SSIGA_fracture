@@ -1,0 +1,19 @@
+<?xml version="1.0" ?>
+<Xdmf Version="2.0">
+  <Domain>
+    <Grid Name="ien">
+      <Topology TopologyType="EDGE_3" NumberOfElements="64">
+        <DataItem Reference="XML">/Xdmf/Domain/Grid/DataItem[@Name=&quot;ien&quot;]</DataItem>
+      </Topology>
+      <Geometry GeometryType="XY">
+        <DataItem Reference="XML">/Xdmf/Domain/Grid/DataItem[@Name=&quot;xyz&quot;]</DataItem>
+      </Geometry>
+      <DataItem Name="xyz" Dimensions="192 2" ItemType="Uniform" NumberType="Float" Precision="8" Format="Binary" Endian="Little">
+        bin/deformed_local_patch_boundary_xyz.bin
+      </DataItem>
+      <DataItem Name="ien" Dimensions="64 3" ItemType="Uniform" NumberType="Int" Format="Binary" Endian="Little">
+        bin/local_patch_boundary_ien.bin
+      </DataItem>
+    </Grid>
+  </Domain>
+</Xdmf>

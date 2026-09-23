@@ -17,8 +17,12 @@ PROGRAM_NAME = SSIGA
 # INPUT_NAME := SCCHP_v8_coarse
 # INPUT_NAME := SCCHP_v9_coarse
 # INPUT_NAME := SCCHP_v9_fine
-INPUT_NAME := SCCHP_v10_coarse
+# INPUT_NAME := SCCHP_v10_coarse
 # INPUT_NAME := SCCHP_v10_only_geometric
+# INPUT_NAME := SCCHP_v11_coarse
+# INPUT_NAME := SCCHP_v11_fine
+INPUT_NAME := SCCHP_v12_coarse
+# INPUT_NAME := SCCHP_v12_fine
 
 # 出力ディレクトリをインプット名から自動生成
 OUTPUT_DIR := output_$(INPUT_NAME)

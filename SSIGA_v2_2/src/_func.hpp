@@ -21,6 +21,7 @@ void Make_INC_for_local_geometric(information *info);
 void setDistLoad(int current_mesh, int patch, int coord, double target_knot, double *range, int type_load, double *dist_load_coeff, information *info);
 void setDistLoad(int current_mesh, int patch, int coord_i, int coord_j, double target_knot, double *range_i, double *range_j, int type_load, double *dist_load_coeff_i, double *dist_load_coeff_j, information *info);
 void setDistLoad_infinite_plate_with_hole(int mesh_n, int iPatch, int iCoord, double val_Coord, double *Range_Coord, int type_load, double *Coeff_Dist_Load, information *info);
+void setDistLoad_moment(int current_mesh, int patch, int coord_i, int coord_j, double target_knot, double *range_i, double *range_j, int type_load, double *dist_load_coeff_i, double *dist_load_coeff_j, information *info);
 int SearchForElement_2D(int mesh_n, int iPatch, int iX, int iY, information *info);
 // search element
 void trans_ele_patch_coord(double* xi_patch, const double* xi_elem, int patch_num, int ele_num, information* info);
@@ -133,8 +134,10 @@ void physical_coord_R(const int e, double *para, double *R, double *out_coord, i
 void geo_parameter_coord_R(const int e_local, double *R_local, double *out_coord, information *info);
 void makeChildPosition(int *child_position, int i, int *parent_position, information *info);
 bool search2D(target_domain &td_base, target_domain &td, information *info);
+bool search2D_curve_and_curve(target_domain &td_base, target_domain &td, information *info);
 void setEdge2D(int edge_num, int *target_axis, double *para, target_domain &temp);
 bool search3D(target_domain &td_base, target_domain &td, information *info);
+bool search3D_face_and_face(target_domain &td_base, target_domain &td, information *info);
 void setEdge3D(int edge_or_face, int edge_or_face_num, int *target_axis, double *para, target_domain &temp);
 void elementConnectivity(information *info, vector<vector<int>> &ecn);
 // fracture analysis

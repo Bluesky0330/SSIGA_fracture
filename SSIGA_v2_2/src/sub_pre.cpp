@@ -1,6 +1,8 @@
 // header
 #include "_header.hpp"
 #include "_sub.hpp"
+#include <cmath>
+#include <iostream>
 
 using namespace std;
 
@@ -398,6 +400,13 @@ void Allocation(const int num, information *info)
 		info->Strain_at_ele_vertex = (double *)calloc(info->Total_Element_to_mesh[Total_mesh] * pow_int(2, info->DIMENSION) * N_STRAIN, sizeof(double));
 		info->Stress_at_ele_vertex = (double *)calloc(info->Total_Element_to_mesh[Total_mesh] * pow_int(2, info->DIMENSION) * N_STRESS, sizeof(double));
 		info->PhysicalCoordinate_at_ele_vertex = (double *)calloc(info->Total_Element_to_mesh[Total_mesh] * pow_int(2, info->DIMENSION) * info->DIMENSION, sizeof(double));
+		
+		// int vertex_n = 10; // 中立面だけの出力用
+		// info->Displacement_at_ele_vertex = (double *)calloc(info->Total_Element_to_mesh[Total_mesh] * vertex_n * info->DIMENSION, sizeof(double));
+		// info->Strain_at_ele_vertex = (double *)calloc(info->Total_Element_to_mesh[Total_mesh] * vertex_n * N_STRAIN, sizeof(double));
+		// info->Stress_at_ele_vertex = (double *)calloc(info->Total_Element_to_mesh[Total_mesh] * vertex_n * N_STRESS, sizeof(double));
+		// info->PhysicalCoordinate_at_ele_vertex = (double *)calloc(info->Total_Element_to_mesh[Total_mesh] * vertex_n * info->DIMENSION, sizeof(double));
+		
 		info->ReactionForce = (double *)calloc(MAX_K_WHOLE_SIZE, sizeof(double)); // ReactionForce[MAX_K_WHOLE_SIZE]
 		if (info->Strain_at_GP == NULL || info->Stress_at_GP == NULL || info->ReactionForce == NULL)
 		{
@@ -1599,7 +1608,8 @@ void Make_INC(information *info)
 				jCoeff_Dist_Load[1] = info->Coeff_Dist_Load_array[(i + info->Total_DistributeForce_to_mesh[tm]) * 6 + 4];
 				jCoeff_Dist_Load[2] = info->Coeff_Dist_Load_array[(i + info->Total_DistributeForce_to_mesh[tm]) * 6 + 5];
 
-				setDistLoad(tm, iPatch, iCoord, jCoord, val_Coord, iRange_Coord, jRange_Coord, type_load, iCoeff_Dist_Load, jCoeff_Dist_Load, info);
+				// setDistLoad(tm, iPatch, iCoord, jCoord, val_Coord, iRange_Coord, jRange_Coord, type_load, iCoeff_Dist_Load, jCoeff_Dist_Load, info);
+				setDistLoad_moment(tm, iPatch, iCoord, jCoord, val_Coord, iRange_Coord, jRange_Coord, type_load, iCoeff_Dist_Load, jCoeff_Dist_Load, info);
 			}
 		}
 	}
@@ -2419,7 +2429,7 @@ void setDistLoad_infinite_plate_with_hole(int mesh_n, int iPatch, int iCoord, do
 	// ガウス点の物理座標を取得(デバッグ用)
 	bool debug_flag = false;
 
-    // ハードコーディングにより、厳密解の応力テンソルを与える
+    // 厳密解の応力テンソルを与える
 	# if 0 // 円形のグローバル
 	double exact_stress[20][3] = {{0.0}}; // [5要素×4積分点][σxx, σyy, τxy]
 	// double exact_stress[40][3] = {{0.0}}; // [10要素×4積分点][σxx, σyy, τxy]
@@ -3105,7 +3115,7 @@ void setDistLoad_infinite_plate_with_hole(int mesh_n, int iPatch, int iCoord, do
 	}
 
 
-    // 既存の範囲検索処理（変更なし）
+    // 範囲検索処理
     if (iCoord == 0)
         jCoord = 1;
     else if (iCoord == 1)
@@ -3265,6 +3275,349 @@ void setDistLoad_infinite_plate_with_hole(int mesh_n, int iPatch, int iCoord, do
             }
         }
     }
+}
+
+
+// モーメントの境界条件設定 !!type_load = 2 にすること!! !!三次元しか使えません!!
+void setDistLoad_moment(int current_mesh, int patch, int coord_i, int coord_j, double target_knot, double *range_i, double *range_j, int type_load, double *dist_load_coeff_i, double *dist_load_coeff_j, information *info)
+{
+
+	// モーメントの大きさを定義[単位N·mm]
+	double Moment_val = 1.0E6;
+
+	// 断面二次モーメントの計算
+	double I_val = 0.0;
+	double Radius = 21.0;
+	double radius = 19.0;
+	double pi = std::acos(-1.0);
+	I_val = pi / 4.0 * (std::pow(Radius, 4.0) - std::pow(radius, 4.0));
+
+	// 配管の中心と中立面の法線ベクトル
+	const vector<double> pipe_center_coord = {0.0, 0.0, 200.0};
+	const vector<double> pipe_center_normal = {0.0, -1.0, 0.0};
+
+	Make_gauss_array(info);
+
+	if (type_load != 2)
+		exit(1);
+
+	// check coordinates and set load surface
+	int target_coord = -1;
+	if (coord_i == 0 && coord_j == 1)
+		target_coord = 2;
+	else if (coord_i == 1 && coord_j == 2)
+		target_coord = 0;
+	else if (coord_i == 2 && coord_j == 0)
+		target_coord = 1;
+	else
+	{
+		printf("Error, incorrect input data at distributed load.\n");
+		exit(1);
+	}
+
+	// set target ENC
+	int current_patch = patch + info->Total_Patch_to_mesh[current_mesh];
+	int id = current_patch * info->DIMENSION + target_coord;
+	int start_knot = info->Position_Knots[info->Total_Knot_to_patch_dim[id] + info->Order[id]];
+	int end_knot = info->Position_Knots[info->Total_Knot_to_patch_dim[id] + info->No_knot[id] - info->Order[id] - 1];
+
+	// check local or global flag
+	bool isLocal = false;
+	if (current_patch >= info->Total_Patch_to_mesh[1])
+		isLocal = true;
+
+	bool isStart = false;
+	int target_ENC = -1;
+	if (fabs(target_knot - start_knot) < MERGE_ERROR)
+	{
+		target_ENC = 0;
+		isStart = true;
+	}
+	else if (fabs(target_knot - end_knot) < MERGE_ERROR)
+	{
+		target_ENC = info->No_Control_point[id] - info->Order[id] - 1;
+		isStart = false;
+	}
+	else
+	{
+		printf("Error, incorrect input data at distributed load.\ntarget_knot is invalid.\n");
+		exit(1);
+	}
+
+	// set coord_i ENC
+	vector<int> i_ENC(2);
+	bool errorFlag_i[2] = {false, false};
+	int id_i = current_patch * info->DIMENSION + coord_i;
+	int knot_id_i = info->Total_Knot_to_patch_dim[id_i] + info->Order[id_i];
+	for (int i = 0; i < info->No_Control_point[id_i] - info->Order[id_i]; i++)
+	{
+		if (fabs(range_i[0] - info->Position_Knots[knot_id_i + i]) < MERGE_ERROR)
+		{
+			i_ENC[0] = i;
+			errorFlag_i[0] |= true;
+		}
+		if (fabs(range_i[1] - info->Position_Knots[knot_id_i + i + 1]) < MERGE_ERROR)
+		{
+			i_ENC[1] = i;
+			errorFlag_i[1] |= true;
+		}
+	}
+	if (!errorFlag_i[0] && !errorFlag_i[1])
+	{
+		printf("Error, incorrect input data at distributed load.\nChange the range of the distributed load.\n");
+		exit(1);
+	}
+
+	// set coord_j ENC
+	vector<int> j_ENC(2);
+	bool errorFlag_j[2] = {false, false};
+	int id_j = current_patch * info->DIMENSION + coord_j;
+	int knot_id_j = info->Total_Knot_to_patch_dim[id_j] + info->Order[id_j];
+	for (int i = 0; i < info->No_Control_point[id_j] - info->Order[id_j]; i++)
+	{
+		if (fabs(range_j[0] - info->Position_Knots[knot_id_j + i]) < MERGE_ERROR)
+		{
+			j_ENC[0] = i;
+			errorFlag_j[0] |= true;
+		}
+		if (fabs(range_j[1] - info->Position_Knots[knot_id_j + i + 1]) < MERGE_ERROR)
+		{
+			j_ENC[1] = i;
+			errorFlag_j[1] |= true;
+		}
+	}
+	if (!errorFlag_j[0] && !errorFlag_j[1])
+	{
+		printf("Error, incorrect input data at distributed load.\nChange the range of the distributed load.\n");
+		exit(1);
+	}
+
+	// serach element
+	vector<int> ele_list;
+	for (int i = 0; i < info->Total_Element_on_mesh[current_mesh]; i++)
+	{
+		int e = i + info->Total_Element_to_mesh[current_mesh];
+		if (info->Element_patch[e] == current_patch)
+		{
+			bool isTargetEle = true;
+			for (int j = 0; j < info->DIMENSION; j++)
+			{
+				int current_ENC = info->ENC[e * info->DIMENSION + j];
+
+				// target coord
+				if (j == target_coord)
+				{
+					if (current_ENC == target_ENC)
+						isTargetEle &= true;
+					else
+					{
+						isTargetEle &= false;
+						break;
+					}
+				}
+
+				// check range i
+				else if (j == coord_i)
+				{
+					if (i_ENC[0] <= current_ENC && current_ENC <= i_ENC[1])
+						isTargetEle &= true;
+					else
+					{
+						isTargetEle &= false;
+						break;
+					}
+				}
+
+				// check range j
+				else if (j == coord_j)
+				{
+					if (j_ENC[0] <= current_ENC && current_ENC <= j_ENC[1])
+						isTargetEle &= true;
+					else
+					{
+						isTargetEle &= false;
+						break;
+					}
+				}
+			}
+
+			if (isTargetEle)
+				ele_list.emplace_back(e);
+		}
+	}
+
+	// parametric coordinates
+	int gp_1d = info->c.NUM_GAUSS_POINTS;
+	int gp_2d = info->c.NUM_GAUSS_POINTS * info->c.NUM_GAUSS_POINTS;
+	vector<double> gp_para(gp_2d * info->DIMENSION);
+	vector<double> gp_w(gp_2d);
+	for (int i = 0; i < gp_1d; i++)
+		for (int j = 0; j < gp_1d; j++)
+		{
+			gp_para[(i * gp_1d + j) * info->DIMENSION + coord_i] = info->gauss_point_1D[i];
+			gp_para[(i * gp_1d + j) * info->DIMENSION + coord_j] = info->gauss_point_1D[j];
+			gp_para[(i * gp_1d + j) * info->DIMENSION + target_coord] = isStart ? -1.0 : 1.0;
+			gp_w[i * gp_1d + j] = info->gauss_w_1D[i] * info->gauss_w_1D[j];
+		}
+
+	// integration for distributed load for global coordinate direction
+	for (size_t i = 0; i < ele_list.size(); i++)
+	{
+		int e = ele_list[i];
+		for (int j = 0; j < gp_2d; j++)
+		{
+			double *para = gp_para.data() + j * info->DIMENSION;
+			vector<double> R(MAX_NO_CP_ON_ELEMENT);
+			vector<double> dR(MAX_NO_CP_ON_ELEMENT * info->DIMENSION);
+
+			vector<double> jac_i(info->DIMENSION, 0.0);
+			vector<double> jac_j(info->DIMENSION, 0.0); 
+			double J = 0.0;
+			vector<double> normal_J(info->DIMENSION);
+
+			if (!isLocal)
+			{
+				shape_and_dshape(R.data(), dR.data(), para, e, true, info);
+
+				// jacobian matrix
+				for (int k = 0; k < info->DIMENSION; k++)
+					for (int m = 0; m < info->No_Control_point_ON_ELEMENT[info->Element_patch[e]]; m++)
+						for (int l = 0; l < info->DIMENSION; l++)
+						{
+							if (l == coord_i)
+								jac_i[k] += dR[m * info->DIMENSION + l] * info->Node_Coordinate[info->Controlpoint_of_Element[e * MAX_NO_CP_ON_ELEMENT + m] * (info->DIMENSION + 1) + k];
+							else if (l == coord_j)
+								jac_j[k] += dR[m * info->DIMENSION + l] * info->Node_Coordinate[info->Controlpoint_of_Element[e * MAX_NO_CP_ON_ELEMENT + m] * (info->DIMENSION + 1) + k];
+						}
+
+				// jacobian ||cross(jac_i, jac_j)||
+				for (int k = 0; k < info->DIMENSION; k++)
+				{
+					normal_J[k] = jac_i[(k + 1) % info->DIMENSION] * jac_j[(k + 2) % info->DIMENSION] - jac_i[(k + 2) % info->DIMENSION] * jac_j[(k + 1) % info->DIMENSION];
+					J += normal_J[k] * normal_J[k];
+				}
+				J = sqrt(J);
+			}
+			else
+			{
+				vector<double> a(info->DIMENSION * info->DIMENSION, 0.0);
+				vector<double> b(info->DIMENSION * info->DIMENSION, 0.0);
+				vector<double> c(info->DIMENSION * info->DIMENSION, 0.0);
+
+				vector<double> para_geo(info->DIMENSION); // ローカル形状要素パラメータ座標
+				vector<double> para_glo(info->DIMENSION); // グローバル要素パラメータ座標
+				vector<double> R_geo(MAX_NO_CP_ON_ELEMENT);
+				vector<double> R_glo(MAX_NO_CP_ON_ELEMENT);
+				vector<double> dR_geo(MAX_NO_CP_ON_ELEMENT * info->DIMENSION);
+				vector<double> dR_glo(MAX_NO_CP_ON_ELEMENT * info->DIMENSION);
+
+				int ele_geo = trans_local_para_to_local_geo_para(e, para, para_geo.data(), info);
+				int ele_glo = trans_local_para_to_global_para(e, para, para_glo.data(), info);
+
+				Bspline_shape_and_dshape(R.data(), dR.data(), para, e, true, info);
+				geo_shape_and_dshape(R_geo.data(), dR_geo.data(), para_geo.data(), ele_geo, false, info);
+				shape_and_dshape(R_glo.data(), dR_glo.data(), para_glo.data(), ele_glo, false, info);
+
+				// 変位要素空間の微分によって生じる定数
+				for (int i = 0; i < info->DIMENSION; i++)
+				{
+					double geo_coeff = dShapeFunc_from_paren(i, e, info);
+					for (int j = 0; j < info->Geo_No_Control_point_ON_ELEMENT[info->Geo_Element_patch[ele_geo]]; j++)
+						dR_geo[j * info->DIMENSION + i] *= geo_coeff;
+				}
+				
+				// jacobian matrix
+				for (int k = 0; k < info->DIMENSION; k++)
+					for (int l = 0; l < info->DIMENSION; l++)
+						for (int m = 0; m < info->Geo_No_Control_point_ON_ELEMENT[info->Geo_Element_patch[ele_geo]]; m++)
+						{
+							a[k * info->DIMENSION + l] += dR_geo[m * info->DIMENSION + l] * info->Geo_Node_Coordinate[info->Geo_Controlpoint_of_Element[ele_geo * MAX_NO_CP_ON_ELEMENT + m] * (info->DIMENSION + 1) + k];
+						}
+				for (int k = 0; k < info->DIMENSION; k++)
+					for (int l = 0; l < info->DIMENSION; l++)
+						for (int m = 0; m < info->No_Control_point_ON_ELEMENT[info->Element_patch[ele_glo]]; m++)
+						{
+							b[k * info->DIMENSION + l] += dR_glo[m * info->DIMENSION + l] * info->Node_Coordinate[info->Controlpoint_of_Element[ele_glo * MAX_NO_CP_ON_ELEMENT + m] * (info->DIMENSION + 1) + k];
+						}
+
+        		for (int k = 0; k < info->DIMENSION; k++)
+        		{
+					for (int l = 0; l < info->DIMENSION; l++)
+        		    {
+						for (int m = 0; m < info->DIMENSION; m++)
+        		        {
+        		            c[k * info->DIMENSION + l] += b[k * info->DIMENSION + m] * a[m * info->DIMENSION + l];
+        		        }
+        		    }
+        		}
+
+				for (int k = 0; k < info->DIMENSION; k++)
+				{
+					jac_i[k] = c[k * info->DIMENSION + coord_i];
+					jac_j[k] = c[k * info->DIMENSION + coord_j];
+				}
+			
+				// jacobian ||cross(jac_i, jac_j)||
+				for (int k = 0; k < info->DIMENSION; k++)
+				{
+					normal_J[k] = jac_i[(k + 1) % info->DIMENSION] * jac_j[(k + 2) % info->DIMENSION] - jac_i[(k + 2) % info->DIMENSION] * jac_j[(k + 1) % info->DIMENSION];
+					J += normal_J[k] * normal_J[k];
+				}
+				J = sqrt(J);
+			}
+
+			// ここをガウス点の物理座標における位置から求めたコーシー応力によって節点力を変換
+			// integrand
+			vector<double> pc_coord(info->DIMENSION);
+			physical_coord(e, para, pc_coord.data(), info);
+
+			
+			// 物理座標から中立面からの距離を計算
+			double distance = 0.0;
+			for (int dim = 0; dim < info->DIMENSION; dim++)
+				distance += pipe_center_normal[dim] * (pc_coord[dim] - pipe_center_coord[dim]);
+
+			// 中立面からの距離に応じた分布荷重の値を計算
+			double val = distance * Moment_val / I_val;
+
+			// type 0, 1, 2
+			if (type_load < 3)
+			{
+				double coeff = val * J * gp_w[j];
+				for (int k = 0; k < info->No_Control_point_ON_ELEMENT[info->Element_patch[e]]; k++)
+				{
+					int index = info->Controlpoint_of_Element[e * MAX_NO_CP_ON_ELEMENT + k] * info->DIMENSION + type_load;
+					info->Equivalent_Nodal_Force[index] += coeff * R[k];
+				}
+			}
+
+			// type 3 (normal direction)
+			else if (type_load == 3)
+			{
+				vector<double> normal(info->DIMENSION);
+				normal[0] = normal_J[0] / J;
+				normal[1] = normal_J[1] / J;
+				normal[2] = normal_J[2] / J;
+
+				double coeff = val * J * gp_w[j];
+				for (int k = 0; k < info->No_Control_point_ON_ELEMENT[info->Element_patch[e]]; k++)
+				{
+					int index = info->Controlpoint_of_Element[e * MAX_NO_CP_ON_ELEMENT + k] * info->DIMENSION;
+					info->Equivalent_Nodal_Force[index + 0] += coeff * normal[0] * R[k];
+					info->Equivalent_Nodal_Force[index + 1] += coeff * normal[1] * R[k];
+					info->Equivalent_Nodal_Force[index + 2] += coeff * normal[2] * R[k];
+				}
+			}
+
+			else
+			{
+				printf("Error, incorrect input data at distributed load.\nChange the type of the distributed load.\n");
+				exit(1);
+			}
+		}
+	}
+
+	// exit(0);
 }
 
 

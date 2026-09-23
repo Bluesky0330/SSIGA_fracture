@@ -8,9 +8,19 @@ GREEN='\033[32m'
 RED='\033[1;31m'
 RESET='\033[0m'
 
-# ローカル端末(Cygwin)側もUTF-8で扱う
-export LANG=ja_JP.UTF-8
-export LC_ALL=ja_JP.UTF-8
+# ローカル端末(Cygwin)側で使えるロケールを自動選択する
+# C.UTF-8 が未対応環境では C などの安全な値へフォールバックする
+SAFE_LOCALE="C"
+if command -v locale >/dev/null 2>&1; then
+    for loc in C.UTF-8 en_US.UTF-8 ja_JP.UTF-8 C; do
+        if locale -a 2>/dev/null | grep -qx "$loc"; then
+            SAFE_LOCALE="$loc"
+            break
+        fi
+    done
+fi
+export LANG="$SAFE_LOCALE"
+export LC_ALL="$SAFE_LOCALE"
 
 # プレフィックス定義
 P_LOC="${CYAN}[Local]${RESET} "
@@ -32,7 +42,7 @@ DIR_NAME=$(basename "$SCRIPT_DIR")
 REMOTE_DIR="~/$DIR_NAME"
 REMOTE_LOG="$REMOTE_DIR/remote_log.txt"
 REMOTE_LOG_COLOR="$REMOTE_DIR/remote_log_color.txt"
-REMOTE_ENV="LANG=ja_JP.UTF-8 LC_ALL=ja_JP.UTF-8"
+REMOTE_ENV="LANG=$SAFE_LOCALE LC_ALL=$SAFE_LOCALE"
 
 # --- 引数処理 (getoptsでオプション解析) ---
 FORCE_RUN=false
@@ -72,9 +82,10 @@ SESSION="build_${DIR_NAME}_${SAFE_TARGET}"
 # --- 1. リモートの状態確認 ---
 print_section "状態確認"
 
-# 誤検知除外(psコマンド)でPID取得
-CHECK_CMD="ps -ef | grep 'make $TARGET' | grep -v grep | grep -v bash | grep -v ssh | awk '{print \$2}' | head -n 1"
-REMOTE_PID=$(ssh "$HOST" "$REMOTE_ENV $CHECK_CMD")
+# PID取得: make ターゲットそのものだけを拾い、別プロセスや自分自身のコマンド文字列を除外する
+# ここでの awk は ssh のクォートと衝突しないように、シンプルな 1 行コマンドとして渡す
+CHECK_CMD="ps -eo pid,comm,args --no-headers 2>/dev/null | grep -F \"make $TARGET\" | grep -v grep | grep -v bash | grep -v ssh | awk '{print \\$1; exit}' | head -n 1"
+REMOTE_PID=$(ssh "$HOST" "$REMOTE_ENV; $CHECK_CMD" 2>/dev/null || true)
 
 MODE=""
 if [ -n "$REMOTE_PID" ]; then
@@ -163,7 +174,7 @@ if [ "$MODE" = "RERUN" ]; then
     # 起動待機
     for i in {1..5}; do
         sleep 1
-        REMOTE_PID=$(ssh "$HOST" "$REMOTE_ENV $CHECK_CMD")
+        REMOTE_PID=$(ssh "$HOST" "$REMOTE_ENV; $CHECK_CMD" 2>/dev/null || true)
         [ -n "$REMOTE_PID" ] && break
     done
     

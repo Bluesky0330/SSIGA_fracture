@@ -69,6 +69,8 @@ void Calc_on_Element_Vertex(information *info)
 	}
 
 	int vertex_n = pow_int(2, info->DIMENSION);
+	// int vertex_n = 10; // 中立面だけの出力用
+
 	vector<double> point_array(vertex_n * info->DIMENSION);
 
 	int counter = 0;
@@ -78,6 +80,17 @@ void Calc_on_Element_Vertex(information *info)
 		point_array[counter] =  1.0;	point_array[counter + 1] = -1.0;	counter += 2;
 		point_array[counter] = -1.0;	point_array[counter + 1] =  1.0;	counter += 2;
 		point_array[counter] =  1.0;	point_array[counter + 1] =  1.0;
+		// point_array[counter] =  -1.0;	point_array[counter + 1] = 0.0;	counter += 2;　// 中立面だけの出力用
+		// point_array[counter] =  -0.8;	point_array[counter + 1] = 0.0;	counter += 2;
+		// point_array[counter] =  -0.6;	point_array[counter + 1] = 0.0;	counter += 2;
+		// point_array[counter] =  -0.4;	point_array[counter + 1] = 0.0;	counter += 2;
+		// point_array[counter] =  -0.2;	point_array[counter + 1] = 0.0;	counter += 2;
+		// point_array[counter] =  0.0;	point_array[counter + 1] = 0.0;	counter += 2;
+		// point_array[counter] =  0.2;	point_array[counter + 1] = 0.0;	counter += 2;
+		// point_array[counter] =  0.4;	point_array[counter + 1] = 0.0;	counter += 2;
+		// point_array[counter] =  0.6;	point_array[counter + 1] = 0.0;	counter += 2;
+		// point_array[counter] =  0.8;	point_array[counter + 1] = 0.0;	counter += 2;
+		// point_array[counter] =  1.0;	point_array[counter + 1] = 0.0;
 	}
 	else if (info->DIMENSION == 3)
 	{

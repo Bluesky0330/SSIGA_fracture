@@ -1,5 +1,18 @@
 #!/bin/bash
 
+# ロケールをシステムがサポートしている値へ自動選択し、C.UTF-8 未対応環境での警告を抑える
+SAFE_LOCALE="C"
+if command -v locale >/dev/null 2>&1; then
+    for loc in C.UTF-8 en_US.UTF-8 ja_JP.UTF-8 C; do
+        if locale -a 2>/dev/null | grep -qx "$loc"; then
+            SAFE_LOCALE="$loc"
+            break
+        fi
+    done
+fi
+export LANG="$SAFE_LOCALE"
+export LC_ALL="$SAFE_LOCALE"
+
 # 環境内のjemallocを探してexportし，見つからなければエラーを出力する
 JEMALLOC_PATH=$(find /usr/lib* -name "libjemalloc.so*" 2>/dev/null | head -n 1)
 if [ -n "$JEMALLOC_PATH" ]; then

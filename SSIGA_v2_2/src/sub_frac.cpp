@@ -246,6 +246,22 @@ bool get_info_J(vector<J_point_info> &jp_list, vector<J_info> &J_list, informati
 		J_list.emplace_back(temp_p + 30, 1, 0, 1, 10/*sub_n*/);
 		J_list.emplace_back(temp_p + 31, 1, 0, 1, 10/*sub_n*/);
 	}
+	else if (info->c.INTEGRAL_DOMAIN_TYPE == 6) // pipe bending for through-wall crack
+	{
+		int temp_p = info->Total_Patch_to_mesh[1];
+	
+		jp_list.emplace_back(info, temp_p + 0, 1, 0, 1, 2);
+		jp_list.emplace_back(info, temp_p + 0, 1, 0, 1, 2);
+	
+		J_list.emplace_back(temp_p + 0, 1, 0, 0, 5/*sub_n*/);
+		J_list.emplace_back(temp_p + 1, 1, 0, 0, 5/*sub_n*/);
+		J_list.emplace_back(temp_p + 2, 1, 0, 0, 5/*sub_n*/);
+		J_list.emplace_back(temp_p + 3, 1, 0, 0, 5/*sub_n*/);
+		J_list.emplace_back(temp_p + 0, 1, 0, 1, 5/*sub_n*/);
+		J_list.emplace_back(temp_p + 1, 1, 0, 1, 5/*sub_n*/);
+		J_list.emplace_back(temp_p + 2, 1, 0, 1, 5/*sub_n*/);
+		J_list.emplace_back(temp_p + 3, 1, 0, 1, 5/*sub_n*/);
+	}
 	else
 	{
 		printf("Error: Invalid INTEGRAL_DOMAIN_TYPE\n");
@@ -865,34 +881,38 @@ void make_virtual_crack_extension_area(J_point_info &jp, J_info &J, size_t line,
 
 		J_integral_area[line * J.sub_n + i] = integral;
 
-		// cross (a, b)
-		vector<double> cross_vec_ab(info->DIMENSION, 0.0);
-		bool isValid = calc_normalized_cross(cross_vec_ab.data(), vec_a.data(), vec_b.data());
-
-		// cross (e, c)
-		vector<double> cross_vec_ec(info->DIMENSION, 0.0);
-		calc_normalized_cross(cross_vec_ec.data(), vec_e.data(), vec_c.data());
-
-		// if cross (a, b) are parallel, use cross (c, ec)
-		if (!isValid)
-		{
-			// cross (c, ec)
-			vector<double> &current_normal = normal[line * J.sub_n + i];
-			calc_normalized_cross(current_normal.data(), vec_c.data(), cross_vec_ec.data());
-		}
+		// Use the physical derivative in r_dir as the crack propagation normal.
+		vector<double> b_dummy(info->DIMENSION * MAX_NO_CP_ON_ELEMENT);
+		vector<double> jacobian(info->DIMENSION * info->DIMENSION);
+		if (!islocal)
+			Make_B_component(e_on_curve, para_disp_n.data(), b_dummy.data(), info, 2, jacobian.data());
 		else
-		{
-			// cross (c, ab)
-			vector<double> &current_normal = normal[line * J.sub_n + i];
-			calc_normalized_cross(current_normal.data(), vec_c.data(), cross_vec_ab.data());
+			Make_B_component_for_SSIGA(e_on_curve, para_disp_n.data(), b_dummy.data(), info, 2, jacobian.data());
 
-			// check direction
-			double dot = 0.0;
+		vector<double> &current_normal = normal[line * J.sub_n + i];
+		for (int m = 0; m < info->DIMENSION; m++)
+			current_normal[m] = jacobian[m * info->DIMENSION + J.r_dir];
+		vector_normalize(current_normal.data(), info->DIMENSION);
+
+		// The crack-surface direction uses a direction different from r_dir.
+		vector<double> crack_surface_direction(info->DIMENSION, 0.0);
+		calc_normalized_cross(crack_surface_direction.data(), current_normal.data(), vec_a.data());
+
+		// The front tangent is orthogonal to the propagation and crack-surface directions.
+		vector<double> tangent_direction(info->DIMENSION, 0.0);
+		calc_normalized_cross(tangent_direction.data(), current_normal.data(), crack_surface_direction.data());
+
+		// Preserve the existing propagation-direction convention.
+		double dot = 0.0;
+		for (int m = 0; m < info->DIMENSION; m++)
+			dot += current_normal[m] * vec_a[m];
+		if (dot < 0.0)
+		{
 			for (int m = 0; m < info->DIMENSION; m++)
-				dot += current_normal[m] * vec_a[m];
-			if (dot < 0.0)
-				for (int m = 0; m < info->DIMENSION; m++)
-					current_normal[m] *= -1.0;
+			{
+				current_normal[m] *= -1.0;
+				crack_surface_direction[m] *= -1.0;
+			}
 		}
 
 		// debug normal direction
@@ -908,27 +928,15 @@ void make_virtual_crack_extension_area(J_point_info &jp, J_info &J, size_t line,
 
 
 		#if defined(INTERACTION_INTEGRAL_METHOD)
-		// opening direction (n_open): crack plane normal
-		// use cross(vec_e, vec_c) which is normal to the plane spanned by propagation (vec_e) and front tangent (vec_c)
-		vector<double> n_open(info->DIMENSION, 0.0);
-		for (int m = 0; m < info->DIMENSION; m++) n_open[m] = cross_vec_ec[m];
-		vector_normalize(n_open.data(), info->DIMENSION);
-
-		// propagation direction (b_prop): use computed normal[]
+		// Use the same directions for the interaction-integral basis.
 		vector<double> b_prop(info->DIMENSION, 0.0);
 		for (int m = 0; m < info->DIMENSION; m++) b_prop[m] = normal[line * J.sub_n + i][m];
-		vector_normalize(b_prop.data(), info->DIMENSION);
-
-		// tangent (t): build from (prop, open) to keep a right-handed basis
-		// columns are (x', y', z') = (prop, open, tangent) so z' = x' x y'
-		vector<double> t(info->DIMENSION, 0.0);
-		calc_normalized_cross(t.data(), b_prop.data(), n_open.data());
 
 		for (int m = 0; m < info->DIMENSION; m++)
 		{
 			jp.Q[line * J.sub_n + i][m][0] = b_prop[m]; // column 0: propagation (x')
-			jp.Q[line * J.sub_n + i][m][1] = n_open[m]; // column 1: opening (y')
-			jp.Q[line * J.sub_n + i][m][2] = t[m];      // column 2: front tangent (z')
+			jp.Q[line * J.sub_n + i][m][1] = crack_surface_direction[m]; // column 1: crack surface (y')
+			jp.Q[line * J.sub_n + i][m][2] = tangent_direction[m];        // column 2: front tangent (z')
 		}
 		#endif
 
@@ -956,7 +964,6 @@ void make_virtual_crack_extension_area(J_point_info &jp, J_info &J, size_t line,
 void make_virtual_crack_extension_area_on_free_surface(J_point_info &jp, J_info &J, int idx, int e_on_curve, bool islocal, information *info)
 {
 	vector<double> &J_integral_area_fs = jp.J_integral_area_fs;
-	vector<vector<double>> &normal = jp.normal;
 	vector<vector<double>> &normal_fs = jp.normal_fs;
 	vector<vector<double>> &coord = jp.coord;
 	vector<vector<double>> &coord_fs = jp.coord_fs;
@@ -968,7 +975,9 @@ void make_virtual_crack_extension_area_on_free_surface(J_point_info &jp, J_info 
 		printf("error: coord size is too small for free surface storage\n");
 		exit(1);
 	}
+	#if defined(INTERACTION_INTEGRAL_METHOD)
 	int store_index = static_cast<int>(coord.size()) - 2 + idx;
+	#endif
 	int i = (idx == 0) ? 0 : (J.sub_n - 1);
 
 	// calc para_disp
@@ -1123,81 +1132,74 @@ void make_virtual_crack_extension_area_on_free_surface(J_point_info &jp, J_info 
 	}
 	J_integral_area_fs[idx] = integral;
 
-	// Build endpoint propagation normal directly from vec_b (which is the surface normal direction):
-	// vec_b points from endpoint to neighbor node, representing the surface normal direction
+	// Build the propagation direction from the physical r_dir derivative.
+	// vector<double> &current_normal = normal_fs[idx];
+	// vector<double> para_disp_endpoint = (idx == 0) ? para_disp_s : para_disp_e;
+	// para_disp_endpoint[J.r_dir] += epsilon;
+	// vector<double> b_jacobian(info->DIMENSION * MAX_NO_CP_ON_ELEMENT);
+	// vector<double> jacobian(info->DIMENSION * info->DIMENSION);
+	// if (!islocal)
+	// 	Make_B_component(e_on_curve, para_disp_endpoint.data(), b_jacobian.data(), info, 2, jacobian.data());
+	// else
+	// 	Make_B_component_for_SSIGA(e_on_curve, para_disp_endpoint.data(), b_jacobian.data(), info, 2, jacobian.data());
+
+	// for (int m = 0; m < info->DIMENSION; m++)
+	// 	current_normal[m] = jacobian[m * info->DIMENSION + J.r_dir];
+
+	// Build the propagation direction from the vector from the free-surface start to end point.
 	vector<double> &current_normal = normal_fs[idx];
-	
-	// Normalize vec_b directly to get the surface normal
-	double norm_b = 0.0;
 	for (int m = 0; m < info->DIMENSION; m++)
-		norm_b += vec_b[m] * vec_b[m];
-	
-	bool isValid = (norm_b > 1e-14);
-	if (isValid)
-	{
-		norm_b = sqrt(norm_b);
-		for (int m = 0; m < info->DIMENSION; m++)
-			current_normal[m] = vec_b[m] / norm_b;
-	}
-	else
-	{
-		// Fallback for near-zero vectors: reuse previous slice normal if available.
-		if (i > 0)
-		{
-			int prev_index = store_index - 1;
-			for (int m = 0; m < info->DIMENSION; m++)
-				current_normal[m] = normal[prev_index][m];
-		}
-		else
-		{
-			for (int m = 0; m < info->DIMENSION; m++)
-				current_normal[m] = 0.0;
-		}
-	}
+		current_normal[m] = vec_b[m];
+	vector_normalize(current_normal.data(), info->DIMENSION);
+
+	// The free-surface crack-surface direction uses the endpoint's non-r_dir vector.
+	vector<double> crack_surface_direction(info->DIMENSION, 0.0);
+	calc_normalized_cross(crack_surface_direction.data(), current_normal.data(), vec_a.data());
+
+	// The front tangent is the cross product of the two directions above.
+	vector<double> tangent_direction(info->DIMENSION, 0.0);
+	calc_normalized_cross(tangent_direction.data(), current_normal.data(), crack_surface_direction.data());
 
 	// check direction
-	double dot = 0.0;
-	for (int m = 0; m < info->DIMENSION; m++)
-		dot += current_normal[m] * vec_a[m];
-	if (idx == 0) // start point of free surface: normal should point outward from crack (same direction as vec_a)
-	{
-		if (dot > 0.0)
-			for (int m = 0; m < info->DIMENSION; m++)
-				current_normal[m] *= -1.0;
-	}
-	else // end point of free surface: normal should point inward to crack (opposite direction of vec_a)
-	{
-		if (dot < 0.0)
-			for (int m = 0; m < info->DIMENSION; m++)
-				current_normal[m] *= -1.0;
-	}
+	// double dot = 0.0;
+	// for (int m = 0; m < info->DIMENSION; m++)
+	// 	dot += current_normal[m] * vec_a[m];
+	// if (idx == 0) // start point of free surface: normal should point outward from crack (same direction as vec_a)
+	// {
+	// 	if (dot > 0.0)
+	// 		for (int m = 0; m < info->DIMENSION; m++)
+	// 		{
+	// 			current_normal[m] *= -1.0;
+	// 			crack_surface_direction[m] *= -1.0;
+	// 		}
+	// }
+	// else // end point of free surface: normal should point inward to crack (opposite direction of vec_a)
+	// {
+	// 	if (dot < 0.0)
+	// 		for (int m = 0; m < info->DIMENSION; m++)
+	// 		{
+	// 			current_normal[m] *= -1.0;
+	// 			crack_surface_direction[m] *= -1.0;
+	// 		}
+	// }
+	// debug normal direction
+	// cout << "idx: " << idx << " normal_fs: ";
+	// for (int m = 0; m < info->DIMENSION; m++)
+	// {
+	// 	cout << current_normal[m] << "\t";
+	// }
+	// cout << endl;
+
+	// debug virtual crack extension area
+	// cout << "idx: " << idx << " virtual crack extension area: " << J_integral_area_fs[idx] << endl;
+
 
 	#if defined(INTERACTION_INTEGRAL_METHOD)
-	// build local basis from propagation and front tangent
-	// (front_tangent already computed above)
-	vector_normalize(front_tangent.data(), info->DIMENSION);
-
-	// propagation direction (b_prop): use computed normal[]
-	vector<double> b_prop(info->DIMENSION, 0.0);
-	for (int m = 0; m < info->DIMENSION; m++) b_prop[m] = normal[store_index][m];
-	vector_normalize(b_prop.data(), info->DIMENSION);
-
-	// opening direction (n_open): n_open = t x b_prop
-	vector<double> n_open(info->DIMENSION, 0.0);
-	calc_normalized_cross(n_open.data(), front_tangent.data(), b_prop.data());
-	vector_normalize(n_open.data(), info->DIMENSION);
-
-	// tangent (t): build from (prop, open) to keep a right-handed basis
-	// columns are (x', y', z') = (prop, open, tangent) so z' = x' x y'
-	vector<double> t(info->DIMENSION, 0.0);
-	calc_normalized_cross(t.data(), b_prop.data(), n_open.data());
-	vector_normalize(t.data(), info->DIMENSION);
-
 	for (int m = 0; m < info->DIMENSION; m++)
 	{
-		jp.Q[store_index][m][0] = b_prop[m]; // column 0: propagation (x')
-		jp.Q[store_index][m][1] = n_open[m]; // column 1: opening (y')
-		jp.Q[store_index][m][2] = t[m];      // column 2: front tangent (z')
+		jp.Q[store_index][m][0] = current_normal[m]; // column 0: propagation (x')
+		jp.Q[store_index][m][1] = crack_surface_direction[m]; // column 1: crack surface (y')
+		jp.Q[store_index][m][2] = tangent_direction[m]; // column 2: front tangent (z')
 	}
 	#endif
 
@@ -1218,7 +1220,6 @@ void make_virtual_crack_extension_area_on_free_surface(J_point_info &jp, J_info 
 		exit(0);
 	}
 	#endif
-	
 }	
 
 void J_sub_element(vector<J_info> &J_list, vector<J_point_info> &jp_list, vector<sub_ele_J> &sub_ele, information *info)
@@ -1585,9 +1586,9 @@ void J_sub_element(vector<J_info> &J_list, vector<J_point_info> &jp_list, vector
 						J_int[k] += (stress_disp_grad[l * info->DIMENSION + k] - W_I[k * info->DIMENSION + l]) * q_grad[l] * coef;
 
 						// for debug jp_list == 0, jp_list[i].J_val == 22
-						// if (i == 0 && j == 22)
+						// if (current_sub_ele.jp_list_index == 0)
 						// {
-						// 	printf("Debug: i=%zu, j=%d, k=%d, l=%d, stress_disp_grad=%.3e, W_I=%.3e, q_grad=%.3e, coef=%.3e\n",i, j, k, l, stress_disp_grad[l * info->DIMENSION + k], W_I[k * info->DIMENSION + l], q_grad[l], coef);
+						// 	printf("normal Debug: i=%zu, j=%d, k=%d, l=%d, stress_disp_grad=%.3e, W_I=%.3e, q_grad=%.3e, coef=%.3e\n",i, j, k, l, stress_disp_grad[l * info->DIMENSION + k], W_I[k * info->DIMENSION + l], q_grad[l], coef);
 						// 	fflush(stdout);
 						// }
 					}
@@ -1603,11 +1604,19 @@ void J_sub_element(vector<J_info> &J_list, vector<J_point_info> &jp_list, vector
 				{
 					vector<double> J_int_fs(info->DIMENSION, 0.0);
 					for (int k = 0; k < info->DIMENSION; k++)
+					{
 						for (int l = 0; l < info->DIMENSION; l++)
 						{
 							J_int_fs[k] += (stress_disp_grad[l * info->DIMENSION + k] - W_I[k * info->DIMENSION + l]) * q_grad_fs[l] * coef_fs;
-						}
 
+							// for debug jp_list == 1, fs_index == 1
+							// if (fs_index == 1)
+							// {
+							// 	printf("fs Debug: i=%zu, j=%d, k=%d, l=%d, stress_disp_grad=%.3e, W_I=%.3e, q_grad_fs=%.3e, coef_fs=%.3e\n",i, j, k, l, stress_disp_grad[l * info->DIMENSION + k], W_I[k * info->DIMENSION + l], q_grad_fs[l], coef_fs);
+							// 	fflush(stdout);
+							// }
+						}
+					}
 
 					for (int k = 0; k < info->DIMENSION; k++)
 					{

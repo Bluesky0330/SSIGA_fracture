@@ -14,7 +14,8 @@ void searchOverlappingEle(information *info)
 	int zero_vec[MAX_DIMENSION] = {0};
 
 	// func ptr
-	bool (*search)(target_domain &, target_domain &, information *) = (info->DIMENSION == 2) ? search2D : search3D;
+	// bool (*search)(target_domain &, target_domain &, information *) = (info->DIMENSION == 2) ? search2D : search3D;
+	bool (*search)(target_domain &, target_domain &, information *) = (info->DIMENSION == 2) ? search2D_curve_and_curve : search3D;
 
 	// make element connectivity
 	elementConnectivity(info, ecn);
@@ -145,6 +146,7 @@ void searchOverlappingEle(information *info)
 	//         printf("(total: %zu elements)\n", eoi[e].size());
 	//     }
 	// }
+	// exit(0);
 
 	return;
 }
@@ -690,6 +692,78 @@ bool search2D(target_domain &td_base, target_domain &td, information *info)
 }
 
 
+bool search2D_curve_and_curve(target_domain &td_base, target_domain &td, information *info)
+{
+	constexpr int max_itr = 8;
+	constexpr int edge_n = 4;
+
+	vector<double> R_base(MAX_NO_CP_ON_ELEMENT);
+	vector<double> dR_base(MAX_DIMENSION * MAX_NO_CP_ON_ELEMENT);
+
+	for (int i = 0; i < edge_n; i++)
+	{
+		for (int j = 0; j < edge_n; j++)
+		{
+			int target_axis_base = 0;
+			int target_axis = 0;
+			int patch_base = info->Element_patch[td_base.e] - info->Total_Patch_on_mesh[0]; // ローカル形状表現のパッチ番号
+			double para_base[MAX_DIMENSION] = {0.0};
+			double para[MAX_DIMENSION] = {0.0};
+			double tilde_para_base[MAX_DIMENSION] = {0.0};
+
+			setEdge2D(i, &target_axis_base, para_base, td_base);
+			setEdge2D(j, &target_axis, para, td);
+
+			const int fixed_axis = (target_axis == 0) ? 1 : 0;
+			const double fixed_value = para[fixed_axis];
+
+			for (int k = 0; k < max_itr; k++)
+			{
+				double coord_base[MAX_DIMENSION] = {0.0};
+
+				if (check_nonfinite(para_base, info->DIMENSION))
+					break;
+
+				int e_base = geo_ele_check(patch_base, para_base, info);
+				if (e_base == ERROR)
+					break;
+
+				geo_tilde_coord(tilde_para_base, para_base, patch_base, e_base, info);
+				geo_shape_and_dshape(R_base.data(), dR_base.data(), tilde_para_base, e_base, false, info);
+				geo_parameter_coord_R(e_base, R_base.data(), coord_base, info);
+
+				double diff = coord_base[fixed_axis] - fixed_value;
+				if (!isfinite(diff))
+					break;
+				if (fabs(diff) < MERGE_ERROR)
+				{
+					if (td.para_start[target_axis] - MERGE_ERROR <= coord_base[target_axis] && coord_base[target_axis] <= td.para_end[target_axis] + MERGE_ERROR)
+						return true;
+					break;
+				}
+
+				double J = 0.0;
+				for (int n = 0; n < info->Geo_No_Control_point_ON_ELEMENT[info->Geo_Element_patch[e_base]]; n++)
+					J += dR_base[n * info->DIMENSION + target_axis_base] * info->Geo_Node_Coordinate[info->Geo_Controlpoint_of_Element[e_base * MAX_NO_CP_ON_ELEMENT + n] * (info->DIMENSION + 1) + fixed_axis];
+
+				if (!isfinite(J) || fabs(J) < MERGE_ERROR)
+					break;
+
+				double sol = diff / J;
+				para_base[target_axis_base] -= sol;
+
+				if (para_base[target_axis_base] > td_base.para_end[target_axis_base])
+					para_base[target_axis_base] = td_base.para_end[target_axis_base];
+				if (para_base[target_axis_base] < td_base.para_start[target_axis_base])
+					para_base[target_axis_base] = td_base.para_start[target_axis_base];
+			}
+		}
+	}
+
+	return false;
+}
+
+
 void setEdge2D(int edge_num, int *target_axis, double *para, target_domain &temp)
 {
 	// 左辺
@@ -747,79 +821,60 @@ bool search3D(target_domain &td_base, target_domain &td, information *info)
 			double para_base[MAX_DIMENSION] = {0.0};
 			double para[MAX_DIMENSION] = {0.0};
 			double tilde_para_base[MAX_DIMENSION] = {0.0};
-			double dR_simple[MAX_DIMENSION * MAX_DIMENSION] = {0.0};
 
 			setEdge3D(0, i, &target_axis_base, para_base, td_base);
 			setEdge3D(1, j, target_axis, para, td);
+
+			const int fixed_axis = 3 - target_axis[0] - target_axis[1];
+			const double fixed_value = para[fixed_axis];
 
 			// Newton-Raphson loop
 			bool singular_flag = true;
 			for (int k = 0; k < max_itr; k++)
 			{
 				double coord_base[MAX_DIMENSION] = {0.0};
-				double coord[MAX_DIMENSION] = {0.0};
-
-				vector<double> diff(MAX_DIMENSION);
-				vector<double> sol(MAX_DIMENSION);
-				vector<double> J(MAX_DIMENSION * MAX_DIMENSION, 0.0);
+				double diff = 0.0;
 
 				if (check_nonfinite(para_base, info->DIMENSION) || check_nonfinite(para, info->DIMENSION))
 					break;
+
 				int e_base = geo_ele_check(patch_base, para_base, info);
+				if (e_base == ERROR)
+					break;
+
 				geo_tilde_coord(tilde_para_base, para_base, patch_base, e_base, info);
 				geo_shape_and_dshape(R_base.data(), dR_base.data(), tilde_para_base, e_base, false, info);
 				geo_parameter_coord_R(e_base, R_base.data(), coord_base, info);
 
-				std::fill(dR_simple, dR_simple + info->DIMENSION * info->DIMENSION, 0.0);
-				for (int m = 0; m < info->DIMENSION - 1; m++)
-				    dR_simple[target_axis[m] * info->DIMENSION + 1 + m] = 1.0;
-				std::copy(para, para + info->DIMENSION, coord);
+				diff = coord_base[fixed_axis] - fixed_value;
+				double r = fabs(diff);
 
-				double r = 0.0;
-				for (int l = 0; l < info->DIMENSION; l++)
-				{
-					diff[l] = coord_base[l] - coord[l];
-					r += diff[l] * diff[l];
-				}
-				r = sqrt(r);
-
-				// check position
 				if (!isfinite(r))
 					break;
 				if (r < MERGE_ERROR)
-					return true;
+				{
+					if (td.para_start[target_axis[0]] - MERGE_ERROR <= coord_base[target_axis[0]] && coord_base[target_axis[0]] <= td.para_end[target_axis[0]] + MERGE_ERROR &&
+					    td.para_start[target_axis[1]] - MERGE_ERROR <= coord_base[target_axis[1]] && coord_base[target_axis[1]] <= td.para_end[target_axis[1]] + MERGE_ERROR)
+						return true;
+					break;
+				}
 
                 // make J
-				for (int l = 0; l < info->DIMENSION; l++)
-					for (int n = 0; n < info->Geo_No_Control_point_ON_ELEMENT[info->Geo_Element_patch[e_base]]; n++)
-						J[l * info->DIMENSION + 0] += dR_base[n * info->DIMENSION + target_axis_base] * info->Geo_Node_Coordinate[info->Geo_Controlpoint_of_Element[e_base * MAX_NO_CP_ON_ELEMENT + n] * (info->DIMENSION + 1) + l];
-				for (int l = 0; l < info->DIMENSION; l++)
-					for (int m = 0; m < info->DIMENSION; m++)
-							J[m * info->DIMENSION + l] -= dR_simple[m * info->DIMENSION + l];
+				double J = 0.0;
+				for (int n = 0; n < info->Geo_No_Control_point_ON_ELEMENT[info->Geo_Element_patch[e_base]]; n++)
+					J += dR_base[n * info->DIMENSION + target_axis_base] * info->Geo_Node_Coordinate[info->Geo_Controlpoint_of_Element[e_base * MAX_NO_CP_ON_ELEMENT + n] * (info->DIMENSION + 1) + fixed_axis];
+
+				if (!isfinite(J) || fabs(J) < MERGE_ERROR)
+					break;
 
 				// solve [J]{sol} = {diff}
-				singular_flag = GaussianElimination2(sol.data(), diff.data(), J.data(), info->DIMENSION);
-
-				if (!singular_flag)
-					continue;
-
-				// update
-				para_base[target_axis_base] -= sol[0];
-				para[target_axis[0]] -= sol[1];
-				para[target_axis[1]] -= sol[2];
+				double sol = diff / J;
+				para_base[target_axis_base] -= sol;
 
 				if (para_base[target_axis_base] > td_base.para_end[target_axis_base])
 					para_base[target_axis_base] = td_base.para_end[target_axis_base];
 				if (para_base[target_axis_base] < td_base.para_start[target_axis_base])
 					para_base[target_axis_base] = td_base.para_start[target_axis_base];
-
-				for (int l = 0; l < 2; l++)
-				{
-					if (para[target_axis[l]] > td.para_end[target_axis[l]])
-						para[target_axis[l]] = td.para_end[target_axis[l]];
-					if (para[target_axis[l]] < td.para_start[target_axis[l]])
-						para[target_axis[l]] = td.para_start[target_axis[l]];
-				}
 			}
 		}
 	}
@@ -829,83 +884,271 @@ bool search3D(target_domain &td_base, target_domain &td, information *info)
 	{
 		for (int j = 0; j < face_n; j++)
 		{
-			int target_axis_base = 0;
-			int target_axis[2] = {0, 0};
-			int patch = info->Element_patch[td_base.e] - info->Total_Patch_on_mesh[0]; // ローカル形状表現のパッチ番号
+			int target_axis_td = 0;
+			int target_axis_base[2] = {0, 0};
+			int patch_base = info->Element_patch[td_base.e] - info->Total_Patch_on_mesh[0];
+			
+			double para_td[MAX_DIMENSION] = {0.0};
 			double para_base[MAX_DIMENSION] = {0.0};
-			double para[MAX_DIMENSION] = {0.0};
-			double tilde_para[MAX_DIMENSION] = {0.0};
-			double dR_base_simple[MAX_DIMENSION] = {0.0};
+			double tilde_para_base[MAX_DIMENSION] = {0.0};
 
-			setEdge3D(0, i, &target_axis_base, para_base, td);
-			setEdge3D(1, j, target_axis, para, td_base);
+			setEdge3D(0, i, &target_axis_td, para_td, td);
+			setEdge3D(1, j, target_axis_base, para_base, td_base);
+
+			// グローバル辺が定数として持っている2つの固定軸を特定
+			int fixed_axis[2];
+			int idx = 0;
+			for (int axis = 0; axis < info->DIMENSION; axis++)
+			{
+				if (axis != target_axis_td)
+				{
+					fixed_axis[idx++] = axis;
+				}
+			}
+			
+			// グローバル辺の固定座標値 (C^G の定数部分)
+			const double fixed_value[2] = { para_td[fixed_axis[0]], para_td[fixed_axis[1]] };
 
 			// Newton-Raphson loop
 			bool singular_flag = true;
 			for (int k = 0; k < max_itr; k++)
 			{
 				double coord_base[MAX_DIMENSION] = {0.0};
-				double coord[MAX_DIMENSION] = {0.0};
 
-				vector<double> diff(MAX_DIMENSION);
-				vector<double> sol(MAX_DIMENSION);
-				vector<double> J(MAX_DIMENSION * MAX_DIMENSION, 0.0);
-
-				if (check_nonfinite(para_base, info->DIMENSION) || check_nonfinite(para, info->DIMENSION))
+				if (check_nonfinite(para_base, info->DIMENSION))
 					break;
-				int e = geo_ele_check(patch, para, info);
-				geo_tilde_coord(tilde_para, para, patch, e, info);
-				geo_shape_and_dshape(R.data(), dR.data(), tilde_para, e, false, info);
-				geo_parameter_coord_R(e, R.data(), coord, info);
 
-				std::fill(dR_base_simple, dR_base_simple + info->DIMENSION, 0.0);
-				dR_base_simple[target_axis_base] = 1.0;
-				std::copy(para_base, para_base + info->DIMENSION, coord_base);
+				int e_base = geo_ele_check(patch_base, para_base, info);
+				if (e_base == ERROR)
+					break;
 
-				double r = 0.0;
-				for (int l = 0; l < info->DIMENSION; l++)
-				{
-					diff[l] = coord_base[l] - coord[l];
-					r += diff[l] * diff[l];
-				}
-				r = sqrt(r);
+				geo_tilde_coord(tilde_para_base, para_base, patch_base, e_base, info);
+				geo_shape_and_dshape(R_base.data(), dR_base.data(), tilde_para_base, e_base, false, info);
+				geo_parameter_coord_R(e_base, R_base.data(), coord_base, info);
 
-				// check position
+				// 残差ベクトル f = S^L - C^G （固定されている2軸についてのみ差分を取る）
+				vector<double> f(2, 0.0);
+				f[0] = coord_base[fixed_axis[0]] - fixed_value[0];
+				f[1] = coord_base[fixed_axis[1]] - fixed_value[1];
+				double r = sqrt(f[0] * f[0] + f[1] * f[1]);
+
 				if (!isfinite(r))
 					break;
+
 				if (r < MERGE_ERROR)
-					return true;
+				{
+					if (td.para_start[target_axis_td] - MERGE_ERROR <= coord_base[target_axis_td] && 
+					    coord_base[target_axis_td] <= td.para_end[target_axis_td] + MERGE_ERROR)
+					{
+						return true;
+					}
+					break;
+				}
 
-                // make J
-				for (int l = 0; l < info->DIMENSION; l++)
-					J[l * info->DIMENSION + 0] += dR_base_simple[l];
+				vector<double> J(4, 0.0);
 				for (int l = 0; l < 2; l++)
-					for (int m = 0; m < info->DIMENSION; m++)
-						for (int n = 0; n < info->Geo_No_Control_point_ON_ELEMENT[info->Geo_Element_patch[e]]; n++)
-							J[m * info->DIMENSION + l + 1] -= dR[n * info->DIMENSION + target_axis[l]] * info->Geo_Node_Coordinate[info->Geo_Controlpoint_of_Element[e * MAX_NO_CP_ON_ELEMENT + n] * (info->DIMENSION + 1) + m];
+					for (int m = 0; m < 2; m++)
+						for (int n = 0; n < info->Geo_No_Control_point_ON_ELEMENT[info->Geo_Element_patch[e_base]]; n++)
+							J[l * 2 + m] += dR_base[n * info->DIMENSION + target_axis_base[m]] * info->Geo_Node_Coordinate[info->Geo_Controlpoint_of_Element[e_base * MAX_NO_CP_ON_ELEMENT + n] * (info->DIMENSION + 1) + fixed_axis[l]];
 
-				// solve [J]{sol} = {diff}
-				singular_flag = GaussianElimination2(sol.data(), diff.data(), J.data(), info->DIMENSION);
+
+				vector<double> sol(2, 0.0);
+				singular_flag = GaussianElimination2(sol.data(), f.data(), J.data(), 2);
 
 				if (!singular_flag)
-					continue;
+					break;
 
-				// update
-				para_base[target_axis_base] -= sol[0];
-				para[target_axis[0]] -= sol[1];
-				para[target_axis[1]] -= sol[2];
+				para_base[target_axis_base[0]] -= sol[0];
+				para_base[target_axis_base[1]] -= sol[1];
 
-				if (para_base[target_axis_base] > td.para_end[target_axis_base])
-					para_base[target_axis_base] = td.para_end[target_axis_base];
-				if (para_base[target_axis_base] < td.para_start[target_axis_base])
-					para_base[target_axis_base] = td.para_start[target_axis_base];
-
-				for (int l = 0; l < 2; l++)
+				for (int m = 0; m < 2; m++)
 				{
-					if (para[target_axis[l]] > td_base.para_end[target_axis[l]])
-						para[target_axis[l]] = td_base.para_end[target_axis[l]];
-					if (para[target_axis[l]] < td_base.para_start[target_axis[l]])
-						para[target_axis[l]] = td_base.para_start[target_axis[l]];
+					if (para_base[target_axis_base[m]] > td_base.para_end[target_axis_base[m]])
+						para_base[target_axis_base[m]] = td_base.para_end[target_axis_base[m]];
+					if (para_base[target_axis_base[m]] < td_base.para_start[target_axis_base[m]])
+						para_base[target_axis_base[m]] = td_base.para_start[target_axis_base[m]];
+				}
+			}
+		}
+	}
+
+	return false;
+}
+
+
+// search overlapping element
+bool search3D_face_and_face(target_domain &td_base, target_domain &td, information *info)
+{
+	// constexpr int max_itr = 10;
+	// constexpr int face_n = 6;
+	constexpr int max_itr = 30;
+	constexpr int face_n = 6;
+
+	vector<double> R_base(MAX_NO_CP_ON_ELEMENT);
+	vector<double> dR_base(MAX_DIMENSION * MAX_NO_CP_ON_ELEMENT);
+
+	// fix axis loop (using local face and global face)
+	for (int i = 0; i < face_n; i++)
+	{
+		for (int j = 0; j < face_n; j++)
+		{
+			int target_axis_base[2] = {0, 0};
+			int target_axis[2] = {0, 0};
+			int patch_base = info->Element_patch[td_base.e] - info->Total_Patch_on_mesh[0];
+			double para_base[MAX_DIMENSION] = {0.0};
+			double para[MAX_DIMENSION] = {0.0};
+			double tilde_para_base[MAX_DIMENSION] = {0.0};
+
+			setEdge3D(1, i, target_axis_base, para_base, td_base);
+			setEdge3D(1, j, target_axis, para, td);
+
+			int fixed_axis = 0;
+			for (int axis = 0; axis < info->DIMENSION; axis++)
+			{
+				if (axis != target_axis[0] && axis != target_axis[1])
+				{
+					fixed_axis = axis;
+					break;
+				}
+			}
+
+			const double fixed_value = para[fixed_axis];
+
+			double guess_ratios[9][2] = {
+											{0.0, 0.0},
+											{0.5, 0.0},
+											{1.0, 0.0},
+											{0.0, 0.5},
+											{0.5, 0.5},
+											{1.0, 0.5},
+											{0.0, 1.0},
+											{0.5, 1.0},
+											{1.0, 1.0}
+        								};
+			for (int guess = 0; guess < 9; guess++)
+        	{
+				// 探索位置の変更
+            	para_base[target_axis_base[0]] = td_base.para_start[target_axis_base[0]] + 
+            	    (td_base.para_end[target_axis_base[0]] - td_base.para_start[target_axis_base[0]]) * guess_ratios[guess][0];
+            	para_base[target_axis_base[1]] = td_base.para_start[target_axis_base[1]] + 
+            	    (td_base.para_end[target_axis_base[1]] - td_base.para_start[target_axis_base[1]]) * guess_ratios[guess][1];
+
+				// Gauss-Newton loop
+				bool singular_flag = true;
+				for (int k = 0; k < max_itr; k++)
+				{
+					double coord_base[MAX_DIMENSION] = {0.0};
+
+					double diff = 0.0;
+					vector<double> J(2, 0.0);
+
+					vector<double> Jr(2, 0.0);
+					vector<double> JJ(4, 0.0);
+					vector<double> sol(2, 0.0);
+
+					if (check_nonfinite(para_base, info->DIMENSION) || check_nonfinite(para, info->DIMENSION))
+						break;
+					int e_base = geo_ele_check(patch_base, para_base, info);
+					if (e_base == ERROR)
+						break;
+					geo_tilde_coord(tilde_para_base, para_base, patch_base, e_base, info);
+					geo_shape_and_dshape(R_base.data(), dR_base.data(), tilde_para_base, e_base, false, info);
+					geo_parameter_coord_R(e_base, R_base.data(), coord_base, info);
+
+					diff = coord_base[fixed_axis] - fixed_value;
+					double r = fabs(diff);
+
+					// check position
+					if (!isfinite(r))
+						break;
+					if (r < MERGE_ERROR)
+					{
+						if (td.para_start[target_axis[0]] - MERGE_ERROR <= coord_base[target_axis[0]] && coord_base[target_axis[0]] <= td.para_end[target_axis[0]] + MERGE_ERROR &&
+						    td.para_start[target_axis[1]] - MERGE_ERROR <= coord_base[target_axis[1]] && coord_base[target_axis[1]] <= td.para_end[target_axis[1]] + MERGE_ERROR)
+							return true;
+						break;
+					}
+
+					// make J for the base-face parameters only
+					for (int l = 0; l < 2; l++)
+						for (int n = 0; n < info->Geo_No_Control_point_ON_ELEMENT[info->Geo_Element_patch[e_base]]; n++)
+							J[l] += dR_base[n * info->DIMENSION + target_axis_base[l]] * info->Geo_Node_Coordinate[info->Geo_Controlpoint_of_Element[e_base * MAX_NO_CP_ON_ELEMENT + n] * (info->DIMENSION + 1) + fixed_axis];
+
+
+					// determine fixed DOFs
+					// bool fixed[2] = {false, false};
+
+					// for (int l = 0; l < 2; l++)
+					// 	if (fabs(para_base[target_axis_base[l]] - td_base.para_start[target_axis_base[l]]) < MERGE_ERROR || fabs(para_base[target_axis_base[l]] - td_base.para_end[target_axis_base[l]]) < MERGE_ERROR)
+					// 		fixed[l] = true;
+
+					// // remove fixed columns
+					// for (int l = 0; l < 2; l++)
+					// {
+					// 	if (!fixed[l])
+					// 		continue;
+					// 	J[l] = 0.0;
+					// }
+
+					// // make JJ = J^T J
+					// for (int l = 0; l < 2; l++)
+					// 	for (int m = 0; m < 2; m++)
+					// 		JJ[l * 2 + m] = J[l] * J[m];
+
+					// // modify JJ for fixed DOFs
+					// for (int l = 0; l < 2; l++)
+					// {
+					// 	if (!fixed[l])
+					// 		continue;
+
+					// 	for (int m = 0; m < 2; m++)
+					// 	{
+					// 		JJ[l * 2 + m] = 0.0;
+					// 		JJ[m * 2 + l] = 0.0;
+					// 	}
+					// 	JJ[l * 2 + l] = 1.0;
+					// }
+
+					// // modify JJ for stability
+					// double lambda = 1.0e-6 * std::max(JJ[0], JJ[3]);
+					// for (int l = 0; l < 2; l++)
+					// 	JJ[l * 2 + l] += lambda;
+
+					// // make Jr = -J^T r
+					// for (int l = 0; l < 2; l++)
+					// 	Jr[l] = -J[l] * diff;
+
+					// // fixed DOFs are not updated
+					// for (int l = 0; l < 2; l++)
+					// 	if (fixed[l])
+					// 		Jr[l] = 0.0;
+
+					// make JJ = J^T J
+					for (int l = 0; l < 2; l++)
+						for (int m = 0; m < 2; m++)
+							JJ[l * 2 + m] = J[l] * J[m];
+
+					// make Jr = -J^T r
+					for (int l = 0; l < 2; l++)
+						Jr[l] = -J[l] * diff;
+
+					// solve [JJ]{sol} = {Jr}
+					singular_flag = GaussianElimination2(sol.data(), Jr.data(), JJ.data(), 2);
+
+					if (!singular_flag)
+						continue;
+
+					// update
+					para_base[target_axis_base[0]] += sol[0];
+					para_base[target_axis_base[1]] += sol[1];
+
+					for (int l = 0; l < 2; l++)
+					{
+						if (para_base[target_axis_base[l]] > td_base.para_end[target_axis_base[l]])
+							para_base[target_axis_base[l]] = td_base.para_end[target_axis_base[l]];
+						if (para_base[target_axis_base[l]] < td_base.para_start[target_axis_base[l]])
+							para_base[target_axis_base[l]] = td_base.para_start[target_axis_base[l]];
+					}
 				}
 			}
 		}

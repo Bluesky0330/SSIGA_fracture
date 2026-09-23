@@ -91,8 +91,9 @@ SESSION="build_${DIR_NAME}_${SAFE_TARGET}"
 # --- 1. リモートの状態確認 ---
 print_section "状態確認"
 
-# 誤検知除外(psコマンド)でPID取得
-CHECK_CMD="ps -ef | grep 'make $TARGET' | grep -v grep | grep -v bash | grep -v ssh | awk '{print \$2}' | head -n 1"
+# make 実行中の PID を取得
+# bash -lc ... make $TARGET のようなラッパー経由でも、実際の make プロセス自体を拾う
+CHECK_CMD="ps -eo pid,comm,args --no-headers | awk -v target=\"$TARGET\" '\$2 == \"make\" && index(\$0, \"make \" target) > 0 {print \$1; exit}'"
 REMOTE_PID=$(ssh "$HOST" "$REMOTE_ENV $CHECK_CMD")
 
 MODE=""
@@ -189,9 +190,8 @@ if [ "$MODE" = "RERUN" ]; then
     if [ -n "$REMOTE_PID" ]; then
         echo -e "${GREEN}${P_REM} 解析開始 (PID: $REMOTE_PID)${RESET}"
     else
-        echo -e "${RED}${P_REM} Error: 解析即時終了。ログを表示します:${RESET}"
-        ssh "$HOST" "cat $REMOTE_LOG"
-        exit 1
+        echo -e "${YELLOW}${P_REM} 解析は起動直後に完了したか、PID の検出がタイムアウトしました。ログと出力を回収します。${RESET}"
+        ssh "$HOST" "cat $REMOTE_LOG" || true
     fi
 fi
 
@@ -226,10 +226,6 @@ if [ "$MODE" != "SYNC" ] && [ -n "$REMOTE_PID" ]; then
 fi
 
 # --- 4. 結果回収 ---
-if [ -z "$REMOTE_PID" ] && [ "$MODE" != "SYNC" ]; then
-    exit 0
-fi
-
 print_section "結果回収"
 print_sub "Remote -> Local 同期"
 

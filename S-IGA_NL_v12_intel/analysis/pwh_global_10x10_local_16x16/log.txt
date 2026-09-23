@@ -1,0 +1,232 @@
+
+S-IGA carried out.(1 local meshes)
+
+DIMENSION: 2
+E: 2.100000e+05, nu: 3.000000e-01
+No_Patch: 1
+Total_Patch_to_mesh[0] = 0
+Total_Control_Point: 169
+Total_Control_Point_to_mesh[0] = 0
+Total_Constraint = 26
+Total_Load = 0
+Total_DistributedForce = 2
+
+DIMENSION: 2
+E: 2.100000e+05, nu: 3.000000e-01
+No_Patch: 1
+Total_Patch_to_mesh[1] = 1
+Total_Control_Point: 361
+Total_Control_Point_to_mesh[1] = 169
+Total_Constraint = 74
+Total_Load = 0
+Total_DistributedForce = 0
+
+Order[0] = 3
+Order[1] = 3
+No_knot[0] = 17
+No_knot[1] = 17
+No_Control_point[0] = 13
+No_Control_point[1] = 13
+No_Control_point_in_patch[0] = 169	
+Total_Element = 100
+Total_Element_on_mesh[0] = 100
+No_Control_point_ON_ELEMENT[0] = 16
+Distibuted load number: 0
+type_load: 0 iPatch: 0 iCoord: 0 val_Coord: 1.000000e+00 Range_Coord: 0.000000e+00 1.000000e+00
+Coef_Dist_Load: 0.000000e+00 0.000000e+00 0.000000e+00
+Distibuted load number: 1
+type_load: 1 iPatch: 0 iCoord: 1 val_Coord: 1.000000e+00 Range_Coord: 0.000000e+00 1.000000e+00
+Coef_Dist_Load: 0.000000e+00 0.000000e+00 0.000000e+00
+Order[2] = 3
+Order[3] = 3
+No_knot[2] = 23
+No_knot[3] = 23
+No_Control_point[2] = 19
+No_Control_point[3] = 19
+No_Control_point_in_patch[1] = 361	
+Total_Element = 256
+Total_Element_on_mesh[1] = 256
+No_Control_point_ON_ELEMENT[1] = 16
+
+
+Finish Get Input data
+
+
+Finish Make INC
+
+
+Finish check_over_parameter
+
+
+K_Whole_Size = 960
+
+
+Finish Make_K_Whole_Ptr_Col
+
+
+Finish Make_K_Whole
+
+
+Finish Make_F_Vec
+
+
+Preprocess time: 0.271[s]
+
+
+Start sparse LU solver
+
+
+=== PARDISO: solving a symmetric indefinite system ===
+0-based array is turned ON
+PARDISO double precision computation is turned ON
+METIS algorithm at reorder step is turned ON
+Scaling is turned ON
+
+
+Summary: ( reordering phase )
+================
+
+Times:
+======
+Time spent in calculations of symmetric matrix portrait (fulladj): 0.000568 s
+Time spent in reordering of the initial matrix (reorder)         : 0.012078 s
+Time spent in symbolic factorization (symbfct)                   : 0.001998 s
+Time spent in data preparations for factorization (parlist)      : 0.000047 s
+Time spent in allocation of internal data structures (malloc)    : 0.004277 s
+Time spent in additional calculations                            : 0.003572 s
+Total time spent                                                 : 0.022540 s
+
+Statistics:
+===========
+Parallel Direct Factorization is running on 1 OpenMP
+
+< Linear system Ax = b >
+             number of equations:           960
+             number of non-zeros in A:      61367
+             number of non-zeros in A (%): 6.658746
+
+             number of right-hand sides:    1
+
+< Factors L and U >
+             number of columns for each panel: 128
+             number of independent subgraphs:  0
+< Preprocessing with state of the art partitioning metis>
+             number of supernodes:                    155
+             size of largest supernode:               196
+             number of non-zeros in L:                150700
+             number of non-zeros in U:                1
+             number of non-zeros in L+U:              150701
+
+Reordering completed ... 
+Number of nonzeros in factors = 150701
+Number of factorization MFLOPS = 26=== PARDISO is running in In-Core mode, because iparam(60)=0 ===
+
+Percentage of computed non-zeros for LL^T factorization
+ 1 %  2 %  3 %  4 %  5 %  6 %  7 %  10 %  19 %  20 %  21 %  22 %  24 %  25 %  26 %  39 %  49 %  50 %  51 %  52 %  53 %  54 %  55 %  56 %  57 %  58 %  59 %  63 %  64 %  65 %  67 %  68 %  69 %  70 %  75 %  80 %  96 %  100 % 
+
+=== PARDISO: solving a symmetric indefinite system ===
+Single-level factorization algorithm is turned ON
+
+
+Summary: ( factorization phase )
+================
+
+Times:
+======
+Time spent in copying matrix to internal data structure (A to LU): 0.000000 s
+Time spent in factorization step (numfct)                        : 0.009050 s
+Time spent in allocation of internal data structures (malloc)    : 0.000129 s
+Time spent in additional calculations                            : 0.000003 s
+Total time spent                                                 : 0.009182 s
+
+Statistics:
+===========
+Parallel Direct Factorization is running on 1 OpenMP
+
+< Linear system Ax = b >
+             number of equations:           960
+             number of non-zeros in A:      61367
+             number of non-zeros in A (%): 6.658746
+
+             number of right-hand sides:    1
+
+< Factors L and U >
+             number of columns for each panel: 128
+             number of independent subgraphs:  0
+< Preprocessing with state of the art partitioning metis>
+             number of supernodes:                    155
+             size of largest supernode:               196
+             number of non-zeros in L:                150700
+             number of non-zeros in U:                1
+             number of non-zeros in L+U:              150701
+             gflop   for the numerical factorization: 0.026416
+
+             gflop/s for the numerical factorization: 2.918898
+
+
+Factorization completed ... 
+=== PARDISO: solving a symmetric indefinite system ===
+
+
+Summary: ( solution phase )
+================
+
+Times:
+======
+Time spent in direct solver at solve step (solve)                : 0.000447 s
+Time spent in additional calculations                            : 0.000989 s
+Total time spent                                                 : 0.001436 s
+
+Statistics:
+===========
+Parallel Direct Factorization is running on 1 OpenMP
+
+< Linear system Ax = b >
+             number of equations:           960
+             number of non-zeros in A:      61367
+             number of non-zeros in A (%): 6.658746
+
+             number of right-hand sides:    1
+
+< Factors L and U >
+             number of columns for each panel: 128
+             number of independent subgraphs:  0
+< Preprocessing with state of the art partitioning metis>
+             number of supernodes:                    155
+             size of largest supernode:               196
+             number of non-zeros in L:                150700
+             number of non-zeros in U:                1
+             number of non-zeros in L+U:              150701
+             gflop   for the numerical factorization: 0.026416
+
+             gflop/s for the numerical factorization: 2.918898
+
+
+Solve completed ... 
+
+Solver time: 0.043[s]
+
+
+Finish Make_Displacement
+
+
+Finish Output_Displacement
+
+
+Finish Output_EOI
+
+
+Finish calc_at_GP
+
+
+Finish calc_at_ele_vertex
+
+
+Start output_for_paraview
+
+
+Finish output_for_paraview
+
+
+Postprocess time: 1.013[s]
+

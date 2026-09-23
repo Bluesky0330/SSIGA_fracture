@@ -1,0 +1,43 @@
+<?xml version="1.0" ?>
+<Xdmf Version="2.0">
+  <Domain>
+    <Grid Name="ien">
+      <Topology TopologyType="Quadrilateral_9" NumberOfElements="100">
+        <DataItem Reference="XML">/Xdmf/Domain/Grid/DataItem[@Name=&quot;ien&quot;]</DataItem>
+      </Topology>
+      <Geometry GeometryType="XY">
+        <DataItem Reference="XML">/Xdmf/Domain/Grid/DataItem[@Name=&quot;xyz&quot;]</DataItem>
+      </Geometry>
+      <Attribute Name="displacement" AttributeType="Vector" Dimensions="441 2">
+        <DataItem Reference="XML">/Xdmf/Domain/Grid/DataItem[@Name=&quot;displacement&quot;]</DataItem>
+      </Attribute>
+      <Attribute Name="stress" AttributeType="Vector" Dimensions="441 3">
+        <DataItem Reference="XML">/Xdmf/Domain/Grid/DataItem[@Name=&quot;stress&quot;]</DataItem>
+      </Attribute>
+      <Attribute Name="strain" AttributeType="Vector" Dimensions="441 3">
+        <DataItem Reference="XML">/Xdmf/Domain/Grid/DataItem[@Name=&quot;strain&quot;]</DataItem>
+      </Attribute>
+      <Attribute Name="equivalent_stress" AttributeType="Scalar" Dimensions="441">
+        <DataItem Reference="XML">/Xdmf/Domain/Grid/DataItem[@Name=&quot;equivalent_stress&quot;]</DataItem>
+      </Attribute>
+      <DataItem Name="xyz" Dimensions="441 2" ItemType="Uniform" NumberType="Float" Precision="8" Format="Binary" Endian="Little">
+        bin/deformed_global_patch_xyz.bin
+      </DataItem>
+      <DataItem Name="ien" Dimensions="100 9" ItemType="Uniform" NumberType="Int" Format="Binary" Endian="Little">
+        bin/global_patch_ien.bin
+      </DataItem>
+      <DataItem Name="displacement" Dimensions="441 2" ItemType="Uniform" NumberType="Float" Precision="8" Format="Binary" Endian="Little">
+        bin/global_patch_disp.bin
+      </DataItem>
+      <DataItem Name="stress" Dimensions="441 3" ItemType="Uniform" NumberType="Float" Precision="8" Format="Binary" Endian="Little">
+        bin/global_patch_stress.bin
+      </DataItem>
+      <DataItem Name="strain" Dimensions="441 3" ItemType="Uniform" NumberType="Float" Precision="8" Format="Binary" Endian="Little">
+        bin/global_patch_strain.bin
+      </DataItem>
+      <DataItem Name="equivalent_stress" Dimensions="441" ItemType="Uniform" NumberType="Float" Precision="8" Format="Binary" Endian="Little">
+        bin/global_patch_eqs.bin
+      </DataItem>
+    </Grid>
+  </Domain>
+</Xdmf>
