@@ -1,0 +1,9 @@
+5       // surface_n
+
+2   1   2 // direction in patch(xi or eta or zeta (0, 1, 2)) position(0 or 1) physical direction(x, y, z)
+
+10      // patch_num
+11
+12
+13
+14

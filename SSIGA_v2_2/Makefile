@@ -1,6 +1,7 @@
 PROGRAM_NAME = SSIGA
 
 # INPUT_NAME := pwh_IGA
+# INPUT_NAME := pwh_loc_8x8
 # INPUT_NAME := pwh_loc_16x16
 # INPUT_NAME := pwh_loc_16x16_OG
 # INPUT_NAME := pwh_loc_32x32
@@ -8,7 +9,10 @@ PROGRAM_NAME = SSIGA
 # INPUT_NAME := SCCHP_v3_coarse
 # INPUT_NAME := SCCHP_v3_fine_OG
 # INPUT_NAME := SCCHP_v3_fine
+# INPUT_NAME := SCCHP_v6_coarse
+# INPUT_NAME := SCCHP_v6_fine
 # INPUT_NAME := SCCHP_v10_coarse
+# INPUT_NAME := SCCHP_v10_fine
 # INPUT_NAME := SCCHP_v11_coarse
 # INPUT_NAME := SCCHP_v11_fine
 # INPUT_NAME := SCCHP_v12_coarse
@@ -32,7 +36,12 @@ PROGRAM_NAME = SSIGA
 # INPUT_NAME := PBTC_v0_coarse
 # INPUT_NAME := PBTC_v0_fine
 # INPUT_NAME := PBTC_v1_coarse
-INPUT_NAME := PBTC_v1_fine
+# INPUT_NAME := PBTC_v1_fine
+# INPUT_NAME := PBTC_v1_sf
+# INPUT_NAME := PBTC_v1_sc
+# INPUT_NAME := PBTC_v1_fine_OG
+# INPUT_NAME := PBTC_v1_order_diff
+# INPUT_NAME := EPBTC_IGA
 # INPUT_NAME := beam
 
 # 出力ディレクトリをインプット名から自動生成

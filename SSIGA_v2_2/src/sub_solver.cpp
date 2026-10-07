@@ -20,82 +20,6 @@
 
 using namespace std;
 
-// Verify CSR integrity before calling external solvers (prints issues and returns false on errors)
-static bool Verify_CSR(information *info, int n)
-{
-	long long nnz = info->K_Whole_Ptr[n];
-	bool ok = true;
-
-	if (info->K_Whole_Ptr[0] != 0)
-	{
-		printf("ERROR: K_Whole_Ptr[0] != 0 (=%lld)\n", info->K_Whole_Ptr[0]);
-		ok = false;
-	}
-
-	if (nnz < 0)
-	{
-		printf("ERROR: nnz (K_Whole_Ptr[n]) is negative (= %lld)\n", nnz);
-		return false;
-	}
-
-	for (int i = 0; i < n; ++i)
-	{
-		long long start = info->K_Whole_Ptr[i];
-		long long end = info->K_Whole_Ptr[i + 1];
-		if (start < 0 || end < 0)
-		{
-			printf("ERROR: negative ptr at row %d: start=%lld end=%lld\n", i, start, end);
-			ok = false;
-			continue;
-		}
-		if (start > end)
-		{
-			printf("ERROR: K_Whole_Ptr not monotonic at row %d: %lld > %lld\n", i, start, end);
-			ok = false;
-			continue;
-		}
-		if (start > nnz || end > nnz)
-		{
-			printf("ERROR: ptr out of range at row %d: start=%lld end=%lld nnz=%lld\n", i, start, end, nnz);
-			ok = false;
-			continue;
-		}
-
-		int prev_col = -1;
-		for (int k = start; k < end; ++k)
-		{
-			int col = info->K_Whole_Col[k];
-			double v = info->K_Whole_Val[k];
-			if (col < 0 || col >= n)
-			{
-				printf("ERROR: K_Whole_Col[%d] out of range (=%d) in row %d\n", k, col, i);
-				ok = false;
-			}
-			if (k > start && col < prev_col)
-			{
-				printf("ERROR: unsorted columns in row %d at indices %d and %d: %d < %d\n", i, k - 1, k, prev_col, col);
-				ok = false;
-			}
-			if (k > start && col == prev_col)
-			{
-				printf("WARNING: duplicate column entry in row %d for column %d (index %d)\n", i, col, k);
-			}
-			if (std::isnan(v) || std::isinf(v))
-			{
-				printf("ERROR: K_Whole_Val[%d] is NaN or Inf\n", k);
-				ok = false;
-			}
-			prev_col = col;
-		}
-	}
-
-	if (!ok)
-		printf("CSR verification failed.\n");
-	else
-		printf("CSR verification OK: n=%d nnz=%lld\n", n, nnz);
-
-	return ok;
-}
 
 // Print progress bar (using \r to overwrite)
 // Intermediate updates go to stderr so typical stdout logs keep only final 100% line.
@@ -1074,13 +998,6 @@ void intel_PARDISO(double *sol, double *rhs, int size, information *info)
 	/* --------------------------------------------------------------------*/
 	phase = 11;
 
-	// Verify CSR integrity before calling PARDISO
-	if (!Verify_CSR(info, n))
-	{
-		printf("Aborting PARDISO: CSR verification failed.\n");
-		exit(4);
-	}
-
 	printf("PARDISO: attempting symbolic factorization (nnz=%lld)...\n", nnz);
 	fflush(stdout);
 
@@ -1098,6 +1015,7 @@ void intel_PARDISO(double *sol, double *rhs, int size, information *info)
 	/* .. Numerical factorization. */
 	/* ----------------------------*/
 	phase = 22;
+
 	PARDISO(pt, &maxfct, &mnum, &mtype, &phase, &n, a.data(), ia.data(), ja.data(), &idum, &nrhs, iparm, &msglvl, &ddum, &ddum, &error);
 	if (error != 0)
 	{
@@ -1105,6 +1023,12 @@ void intel_PARDISO(double *sol, double *rhs, int size, information *info)
 		exit(2);
 	}
 	// printf("\nFactorization completed ... ");
+
+	// printf("perturbed pivots     = %lld\n", (long long)iparm[13]);
+	// printf("positive eigenvalues = %lld\n", (long long)iparm[21]);
+	// printf("negative eigenvalues = %lld\n", (long long)iparm[22]);
+	// printf("zero eigenvalues     = %lld\n", (long long)(n - iparm[21] - iparm[22]));
+	// fflush(stdout);
 
 	/* -----------------------------------------------*/
 	/* .. Back substitution and iterative refinement. */
@@ -1313,4 +1237,213 @@ void overdetermined_system(double *sol,double *rhs, double *A, int m, int n)
 	copy(x.data(), x.data() + x.size(), sol);
 
     return;
+}
+
+#include <cfloat>
+#include <chrono>
+static const int MAX_DENSE_NDOF = 5000;
+
+void Condition_Number_K(information *info)
+{
+	const int n = K_Whole_Size;
+	// 密行列化で必要なメモリ (GB)
+	const double mem_gb = 8.0 * (double)n * (double)n / 1e9;
+ 
+	printf("\n============ Condition_Number_K ============\n");
+	printf("ndof = %d, dense matrix memory ~ %.2f GB\n", n, mem_gb);
+ 
+	auto t0 = std::chrono::steady_clock::now();
+ 
+	Eigen::MatrixXd K = Eigen::MatrixXd::Zero(n, n);
+	for (int i = 0; i < n; i++)
+		for (int j = info->K_Whole_Ptr[i]; j < info->K_Whole_Ptr[i + 1]; j++)
+		{
+			const int c = info->K_Whole_Col[j];
+			K(i, c) = info->K_Whole_Val[j];
+			K(c, i) = info->K_Whole_Val[j];
+		}
+ 
+	Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> es(K, Eigen::EigenvaluesOnly);
+	if (es.info() != Eigen::Success)
+	{
+		printf("固有値計算に失敗しました (Eigen::SelfAdjointEigenSolver)\n");
+		return;
+	}
+ 
+	const Eigen::VectorXd &ev = es.eigenvalues(); // 昇順
+	const double lam_min = ev(0);
+	const double lam_max = ev(n - 1);
+ 
+	double abs_min = DBL_MAX, abs_max = 0.0;
+	int n_neg = 0;
+	for (int i = 0; i < n; i++)
+	{
+		abs_min = std::min(abs_min, std::fabs(ev(i)));
+		abs_max = std::max(abs_max, std::fabs(ev(i)));
+		if (ev(i) < 0.0)
+			n_neg++;
+	}
+ 
+	auto t1 = std::chrono::steady_clock::now();
+ 
+	printf("lambda_min (signed) = % .10e\n", lam_min);
+	printf("lambda_max (signed) = % .10e\n", lam_max);
+	printf("# negative          = %d\n", n_neg);
+	printf("|lambda|_min        = %.10e\n", abs_min);
+	printf("|lambda|_max        = %.10e\n", abs_max);
+	printf("cond(K) = |lambda|_max / |lambda|_min = %.10e\n", abs_max / abs_min);
+	printf("elapsed = %.3f sec\n", std::chrono::duration<double>(t1 - t0).count());
+	printf("==============================================\n");
+}
+
+// 昇順に並んだ固有値 ev から統計を表示する
+static void Eigen_Report(const char *label, const Eigen::VectorXd &ev)
+{
+	const int n = (int)ev.size();
+	if (n == 0)
+		return;
+ 
+	const double lam_min = ev(0);
+	const double lam_max = ev(n - 1);
+	const double abs_max = std::max(std::fabs(lam_min), std::fabs(lam_max));
+ 
+	// 数値ランク判定の閾値 (LAPACK/NumPy と同じ考え方: n * eps * |λ|max)
+	const double tol = abs_max * n * DBL_EPSILON;
+ 
+	int n_neg = 0, n_zero = 0;
+	double abs_min = abs_max;
+	for (int i = 0; i < n; i++)
+	{
+		if (ev(i) < -tol)
+			n_neg++;
+		else if (ev(i) <= tol)
+			n_zero++;
+		abs_min = std::min(abs_min, std::fabs(ev(i)));
+	}
+ 
+	printf("\n---- %s (n = %d) ----\n", label, n);
+	printf("  lambda_min      = % .6e\n", lam_min);
+	printf("  lambda_max      = % .6e\n", lam_max);
+	printf("  zero threshold  = %.3e  (n*eps*|lambda|max)\n", tol);
+	printf("  # negative      = %d\n", n_neg);
+	printf("  # zero (|l|<=tol) = %d\n", n_zero);
+ 
+	if (n_zero > 0)
+		printf("  cond (2-norm)   = inf  -> 特異 (rank deficient, 零空間の次元 = %d)\n", n_zero);
+	else
+		printf("  cond (2-norm)   = %.6e  (= |lambda|max / |lambda|min)\n", abs_max / abs_min);
+
+	if (n_zero == 0)
+		printf("  -> 正定値 (SPD)\n");
+ 
+	// 小さい方から最大5個, 大きい方から3個
+	printf("  smallest eigenvalues:");
+	for (int i = 0; i < std::min(n, 5); i++)
+		printf(" % .3e", ev(i));
+	printf("\n  largest  eigenvalues:");
+	for (int i = std::max(0, n - 3); i < n; i++)
+		printf(" % .3e", ev(i));
+	printf("\n");
+ 
+	// cond が 1/eps 級のときは固有値の絶対誤差 (≒ eps*|λ|max) に埋もれる
+	if (n_zero == 0 && abs_max / abs_min > 1.0 / DBL_EPSILON)
+		printf("  !! cond > 1/eps: 最小固有値は倍精度の丸め誤差以下で信頼できません\n");
+}
+
+static void Eigen_Solve_And_Report(const char *label, const Eigen::MatrixXd &A)
+{
+	if (A.rows() == 0)
+		return;
+	Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> es(A, Eigen::EigenvaluesOnly);
+	if (es.info() != Eigen::Success)
+	{
+		printf("\n---- %s ---- 固有値計算に失敗しました\n", label);
+		return;
+	}
+	Eigen_Report(label, es.eigenvalues()); // 昇順
+}
+ 
+void Check_K_Eigen(information *info)
+{
+	const int n = K_Whole_Size;
+ 
+	printf("\n================ Check_K_Eigen ================\n");
+	if (n > MAX_DENSE_NDOF)
+	{
+		printf("ndof = %d > MAX_DENSE_NDOF (%d) のためスキップします\n", n, MAX_DENSE_NDOF);
+		return;
+	}
+ 
+	auto t0 = std::chrono::steady_clock::now();
+ 
+	// グローバルパッチの自由度数 (Make_M と同じ求め方)
+	int ng = 0;
+	for (int i = 0; i < info->Total_Control_Point_on_mesh[0] * info->DIMENSION; i++)
+		if (info->Index_Dof[i] != ERROR)
+			ng++;
+	const int nl = n - ng;
+ 
+	// 上三角 CRS -> 対称な密行列
+	Eigen::MatrixXd K = Eigen::MatrixXd::Zero(n, n);
+	for (int i = 0; i < n; i++)
+		for (int j = info->K_Whole_Ptr[i]; j < info->K_Whole_Ptr[i + 1]; j++)
+		{
+			const int c = info->K_Whole_Col[j];
+			K(i, c) = info->K_Whole_Val[j];
+			K(c, i) = info->K_Whole_Val[j];
+		}
+ 
+	// (1) K そのもの
+	Eigen_Solve_And_Report("K", K);
+ 
+	// (2) 対角スケーリング後 D^-1/2 K D^-1/2 (Make_M の M_diag と同じスケーリング)
+	{
+		Eigen::VectorXd d(n);
+		bool ok = true;
+		for (int i = 0; i < n; i++)
+		{
+			if (K(i, i) <= 0.0)
+			{
+				printf("\n!! K(%d,%d) = %.3e <= 0 : 対角が非正のためスケーリング不可 (Make_M の sqrt が NaN になります)\n", i, i, K(i, i));
+				ok = false;
+				break;
+			}
+			d(i) = 1.0 / std::sqrt(K(i, i));
+		}
+		if (ok)
+		{
+			Eigen::MatrixXd Ks = d.asDiagonal() * K * d.asDiagonal();
+			Eigen_Solve_And_Report("D^-1/2 K D^-1/2 (diag scaled)", Ks);
+		}
+	}
+ 
+	// (3) 対角ブロック K^G, K^L
+	if (ng > 0 && nl > 0)
+	{
+		Eigen_Solve_And_Report("K^G (global block)", K.topLeftCorner(ng, ng));
+		Eigen_Solve_And_Report("K^L (local block)", K.bottomRightCorner(nl, nl));
+ 
+		// (4) 前処理後 M^-1 K の固有値 (M = blockdiag(K^G, K^L))
+		Eigen::MatrixXd M = K;
+		M.topRightCorner(ng, nl).setZero();
+		M.bottomLeftCorner(nl, ng).setZero();
+ 
+		Eigen::LLT<Eigen::MatrixXd> llt(M);
+		if (llt.info() == Eigen::Success)
+		{
+			Eigen::GeneralizedSelfAdjointEigenSolver<Eigen::MatrixXd> ges(K, M, Eigen::EigenvaluesOnly);
+			if (ges.info() == Eigen::Success)
+				Eigen_Report("M^-1 K (preconditioned, K x = lambda M x)", ges.eigenvalues());
+			else
+				printf("\n---- M^-1 K ---- 一般化固有値計算に失敗しました\n");
+		}
+		else
+		{
+			printf("\n---- M^-1 K ---- M = blockdiag(K^G, K^L) が正定値でないため (Cholesky 失敗) スキップ\n");
+		}
+	}
+ 
+	auto t1 = std::chrono::steady_clock::now();
+	printf("\nCheck_K_Eigen: %.3f sec\n", std::chrono::duration<double>(t1 - t0).count());
+	printf("===============================================\n");
 }

@@ -74,6 +74,9 @@ void LU(double *sol, double *r, double *A, int size);
 void intel_PARDISO(double *sol, double *rhs, int size, information *info);
 void temp_solver(double *sol, double *r, double *M, int row_n, int col_n);
 void overdetermined_system(double *sol,double *rhs, double *A, int m, int n);
+// Eigen solver
+void Condition_Number_K(information *info);
+void Check_K_Eigen(information *info);
 // tool
 double InverseMatrix_2x2(double *M);
 double InverseMatrix_2x2(double M[2][2]);

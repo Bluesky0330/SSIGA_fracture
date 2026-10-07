@@ -180,16 +180,27 @@ int main(int argc, char **argv)
 
 		start[1] = chrono::system_clock::now();
 		
+		# if 0
+		printf("check K Eigen and condition number\n\n");
+		Condition_Number_K(&info);
+		Check_K_Eigen(&info);
+		# endif
+
+		// solve linear system
+		# if 1
 		printf("start pardiso\n\n");
 		intel_PARDISO(info.sol_vec, info.rhs_vec, K_Whole_Size, &info);
+		# endif
 
-		#if 0
+		# if 0
 		printf("start GMRES solver\n\n");
 		GMRES_Solver(K_Whole_Size, 1e-6, &info);
-		#endif
+		# endif
 		
-		// printf("start PCG solver\n\n");
-		// PCG_Solver(1000, 1e-6, &info);
+		#if 0
+		printf("start PCG solver\n\n");
+		PCG_Solver(1000, 1e-6, &info);
+		# endif
 
 		end[1] = chrono::system_clock::now();
 		time = (double)(chrono::duration_cast<chrono::milliseconds>(end[1] - start[1]).count()) / 1000.0;

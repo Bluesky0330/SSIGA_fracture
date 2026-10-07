@@ -1587,8 +1587,8 @@ void Make_INC(information *info)
 				iCoeff_Dist_Load[1] = info->Coeff_Dist_Load_array[(i + info->Total_DistributeForce_to_mesh[tm]) * 3 + 1];
 				iCoeff_Dist_Load[2] = info->Coeff_Dist_Load_array[(i + info->Total_DistributeForce_to_mesh[tm]) * 3 + 2];
 
-				setDistLoad(tm, iPatch, iCoord, val_Coord, iRange_Coord, type_load, iCoeff_Dist_Load, info);
-				// setDistLoad_infinite_plate_with_hole(tm, iPatch, iCoord, val_Coord, iRange_Coord, type_load, iCoeff_Dist_Load, info);
+				// setDistLoad(tm, iPatch, iCoord, val_Coord, iRange_Coord, type_load, iCoeff_Dist_Load, info);
+				setDistLoad_infinite_plate_with_hole(tm, iPatch, iCoord, val_Coord, iRange_Coord, type_load, iCoeff_Dist_Load, info);
 			}
 			else if (info->DIMENSION == 3)
 			{
@@ -1608,8 +1608,8 @@ void Make_INC(information *info)
 				jCoeff_Dist_Load[1] = info->Coeff_Dist_Load_array[(i + info->Total_DistributeForce_to_mesh[tm]) * 6 + 4];
 				jCoeff_Dist_Load[2] = info->Coeff_Dist_Load_array[(i + info->Total_DistributeForce_to_mesh[tm]) * 6 + 5];
 
-				// setDistLoad(tm, iPatch, iCoord, jCoord, val_Coord, iRange_Coord, jRange_Coord, type_load, iCoeff_Dist_Load, jCoeff_Dist_Load, info);
-				setDistLoad_moment(tm, iPatch, iCoord, jCoord, val_Coord, iRange_Coord, jRange_Coord, type_load, iCoeff_Dist_Load, jCoeff_Dist_Load, info);
+				setDistLoad(tm, iPatch, iCoord, jCoord, val_Coord, iRange_Coord, jRange_Coord, type_load, iCoeff_Dist_Load, jCoeff_Dist_Load, info);
+				// setDistLoad_moment(tm, iPatch, iCoord, jCoord, val_Coord, iRange_Coord, jRange_Coord, type_load, iCoeff_Dist_Load, jCoeff_Dist_Load, info);
 			}
 		}
 	}
@@ -3283,7 +3283,7 @@ void setDistLoad_moment(int current_mesh, int patch, int coord_i, int coord_j, d
 {
 
 	// モーメントの大きさを定義[単位N·mm]
-	double Moment_val = 1.0E6;
+	double Moment_val = 1.0E3;
 
 	// 断面二次モーメントの計算
 	double I_val = 0.0;
@@ -3295,6 +3295,8 @@ void setDistLoad_moment(int current_mesh, int patch, int coord_i, int coord_j, d
 	// 配管の中心と中立面の法線ベクトル
 	const vector<double> pipe_center_coord = {0.0, 0.0, 200.0};
 	const vector<double> pipe_center_normal = {0.0, -1.0, 0.0};
+	// const vector<double> pipe_center_coord = {0.0, 170.710678118655, 212.132034355964};
+	// const vector<double> pipe_center_normal = {0.0, -1.0, 0.0};
 
 	Make_gauss_array(info);
 

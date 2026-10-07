@@ -229,22 +229,22 @@ bool get_info_J(vector<J_point_info> &jp_list, vector<J_info> &J_list, informati
 		jp_list.emplace_back(info, temp_p + 16, 1, 0, 1, 2);
 		jp_list.emplace_back(info, temp_p + 24, 1, 0, 1, 2);
 	
-		J_list.emplace_back(temp_p + 16, 1, 0, 0, 10/*sub_n*/);
-		J_list.emplace_back(temp_p + 17, 1, 0, 0, 10/*sub_n*/);
-		J_list.emplace_back(temp_p + 18, 1, 0, 0, 10/*sub_n*/);
-		J_list.emplace_back(temp_p + 19, 1, 0, 0, 10/*sub_n*/);
-		J_list.emplace_back(temp_p + 20, 1, 0, 0, 10/*sub_n*/);
-		J_list.emplace_back(temp_p + 21, 1, 0, 0, 10/*sub_n*/);
-		J_list.emplace_back(temp_p + 22, 1, 0, 0, 10/*sub_n*/);
-		J_list.emplace_back(temp_p + 23, 1, 0, 0, 10/*sub_n*/);
-		J_list.emplace_back(temp_p + 24, 1, 0, 1, 10/*sub_n*/);
-		J_list.emplace_back(temp_p + 25, 1, 0, 1, 10/*sub_n*/);
-		J_list.emplace_back(temp_p + 26, 1, 0, 1, 10/*sub_n*/);
-		J_list.emplace_back(temp_p + 27, 1, 0, 1, 10/*sub_n*/);
-		J_list.emplace_back(temp_p + 28, 1, 0, 1, 10/*sub_n*/);
-		J_list.emplace_back(temp_p + 29, 1, 0, 1, 10/*sub_n*/);
-		J_list.emplace_back(temp_p + 30, 1, 0, 1, 10/*sub_n*/);
-		J_list.emplace_back(temp_p + 31, 1, 0, 1, 10/*sub_n*/);
+		J_list.emplace_back(temp_p + 16, 1, 0, 0, 5/*sub_n*/);
+		J_list.emplace_back(temp_p + 17, 1, 0, 0, 5/*sub_n*/);
+		J_list.emplace_back(temp_p + 18, 1, 0, 0, 5/*sub_n*/);
+		J_list.emplace_back(temp_p + 19, 1, 0, 0, 5/*sub_n*/);
+		J_list.emplace_back(temp_p + 20, 1, 0, 0, 5/*sub_n*/);
+		J_list.emplace_back(temp_p + 21, 1, 0, 0, 5/*sub_n*/);
+		J_list.emplace_back(temp_p + 22, 1, 0, 0, 5/*sub_n*/);
+		J_list.emplace_back(temp_p + 23, 1, 0, 0, 5/*sub_n*/);
+		J_list.emplace_back(temp_p + 24, 1, 0, 1, 5/*sub_n*/);
+		J_list.emplace_back(temp_p + 25, 1, 0, 1, 5/*sub_n*/);
+		J_list.emplace_back(temp_p + 26, 1, 0, 1, 5/*sub_n*/);
+		J_list.emplace_back(temp_p + 27, 1, 0, 1, 5/*sub_n*/);
+		J_list.emplace_back(temp_p + 28, 1, 0, 1, 5/*sub_n*/);
+		J_list.emplace_back(temp_p + 29, 1, 0, 1, 5/*sub_n*/);
+		J_list.emplace_back(temp_p + 30, 1, 0, 1, 5/*sub_n*/);
+		J_list.emplace_back(temp_p + 31, 1, 0, 1, 5/*sub_n*/);
 	}
 	else if (info->c.INTEGRAL_DOMAIN_TYPE == 6) // pipe bending for through-wall crack
 	{
@@ -885,35 +885,61 @@ void make_virtual_crack_extension_area(J_point_info &jp, J_info &J, size_t line,
 		vector<double> b_dummy(info->DIMENSION * MAX_NO_CP_ON_ELEMENT);
 		vector<double> jacobian(info->DIMENSION * info->DIMENSION);
 		if (!islocal)
-			Make_B_component(e_on_curve, para_disp_n.data(), b_dummy.data(), info, 2, jacobian.data());
+			Make_B_component(e_on_curve, para_disp_c.data(), b_dummy.data(), info, 2, jacobian.data());
 		else
-			Make_B_component_for_SSIGA(e_on_curve, para_disp_n.data(), b_dummy.data(), info, 2, jacobian.data());
+			Make_B_component_for_SSIGA(e_on_curve, para_disp_c.data(), b_dummy.data(), info, 2, jacobian.data());
 
+		vector<double> tangent_normal(info->DIMENSION, 0.0);
 		vector<double> &current_normal = normal[line * J.sub_n + i];
 		for (int m = 0; m < info->DIMENSION; m++)
-			current_normal[m] = jacobian[m * info->DIMENSION + J.r_dir];
-		vector_normalize(current_normal.data(), info->DIMENSION);
+			tangent_normal[m] = jacobian[m * info->DIMENSION + J.crack_dir];
+		vector_normalize(tangent_normal.data(), info->DIMENSION);
 
 		// The crack-surface direction uses a direction different from r_dir.
 		vector<double> crack_surface_direction(info->DIMENSION, 0.0);
-		calc_normalized_cross(crack_surface_direction.data(), current_normal.data(), vec_a.data());
+		calc_normalized_cross(crack_surface_direction.data(), tangent_normal.data(), vec_e.data());
 
 		// The front tangent is orthogonal to the propagation and crack-surface directions.
-		vector<double> tangent_direction(info->DIMENSION, 0.0);
-		calc_normalized_cross(tangent_direction.data(), current_normal.data(), crack_surface_direction.data());
+		calc_normalized_cross(current_normal.data(), tangent_normal.data(), crack_surface_direction.data());
+		vector_normalize(current_normal.data(), info->DIMENSION);
 
 		// Preserve the existing propagation-direction convention.
 		double dot = 0.0;
 		for (int m = 0; m < info->DIMENSION; m++)
-			dot += current_normal[m] * vec_a[m];
-		if (dot < 0.0)
-		{
-			for (int m = 0; m < info->DIMENSION; m++)
-			{
-				current_normal[m] *= -1.0;
-				crack_surface_direction[m] *= -1.0;
-			}
-		}
+		    dot += current_normal[m] * (coord_n[m] - coord_s[m]);
+		if (dot > 0.0)
+		    for (int m = 0; m < info->DIMENSION; m++)
+		        current_normal[m] *= -1.0;
+
+		// // cross (a, b)
+		// vector<double> cross_vec_ab(info->DIMENSION, 0.0);
+		// bool isValid = calc_normalized_cross(cross_vec_ab.data(), vec_a.data(), vec_b.data());
+
+		// // cross (e, c)
+		// vector<double> cross_vec_ec(info->DIMENSION, 0.0);
+		// calc_normalized_cross(cross_vec_ec.data(), vec_e.data(), vec_c.data());
+
+		// // if cross (a, b) are parallel, use cross (c, ec)
+		// if (!isValid)
+		// {
+		// 	// cross (c, ec)
+		// 	vector<double> &current_normal = normal[line * J.sub_n + i];
+		// 	calc_normalized_cross(current_normal.data(), vec_c.data(), cross_vec_ec.data());
+		// }
+		// else
+		// {
+		// 	// cross (c, ab)
+		// 	vector<double> &current_normal = normal[line * J.sub_n + i];
+		// 	calc_normalized_cross(current_normal.data(), vec_c.data(), cross_vec_ab.data());
+
+		// 	// check direction
+		// 	double dot = 0.0;
+		// 	for (int m = 0; m < info->DIMENSION; m++)
+		// 		dot += current_normal[m] * vec_a[m];
+		// 	if (dot < 0.0)
+		// 		for (int m = 0; m < info->DIMENSION; m++)
+		// 			current_normal[m] *= -1.0;
+		// }
 
 		// debug normal direction
 		// cout << "line: " << line << " i: " << i << " normal: ";
@@ -1161,34 +1187,35 @@ void make_virtual_crack_extension_area_on_free_surface(J_point_info &jp, J_info 
 	calc_normalized_cross(tangent_direction.data(), current_normal.data(), crack_surface_direction.data());
 
 	// check direction
-	// double dot = 0.0;
-	// for (int m = 0; m < info->DIMENSION; m++)
-	// 	dot += current_normal[m] * vec_a[m];
-	// if (idx == 0) // start point of free surface: normal should point outward from crack (same direction as vec_a)
-	// {
-	// 	if (dot > 0.0)
-	// 		for (int m = 0; m < info->DIMENSION; m++)
-	// 		{
-	// 			current_normal[m] *= -1.0;
-	// 			crack_surface_direction[m] *= -1.0;
-	// 		}
-	// }
-	// else // end point of free surface: normal should point inward to crack (opposite direction of vec_a)
-	// {
-	// 	if (dot < 0.0)
-	// 		for (int m = 0; m < info->DIMENSION; m++)
-	// 		{
-	// 			current_normal[m] *= -1.0;
-	// 			crack_surface_direction[m] *= -1.0;
-	// 		}
-	// }
+	double dot = 0.0;
+	for (int m = 0; m < info->DIMENSION; m++)
+		dot += current_normal[m] * vec_a[m];
+	if (idx == 0) // start point of free surface: normal should point outward from crack (same direction as vec_a)
+	{
+		if (dot > 0.0)
+			for (int m = 0; m < info->DIMENSION; m++)
+			{
+				current_normal[m] *= -1.0;
+				crack_surface_direction[m] *= -1.0;
+			}
+	}
+	else // end point of free surface: normal should point inward to crack (opposite direction of vec_a)
+	{
+		if (dot < 0.0)
+			for (int m = 0; m < info->DIMENSION; m++)
+			{
+				current_normal[m] *= -1.0;
+				crack_surface_direction[m] *= -1.0;
+			}
+	}
+
 	// debug normal direction
-	// cout << "idx: " << idx << " normal_fs: ";
-	// for (int m = 0; m < info->DIMENSION; m++)
-	// {
-	// 	cout << current_normal[m] << "\t";
-	// }
-	// cout << endl;
+	cout << "idx: " << idx << " normal_fs: ";
+	for (int m = 0; m < info->DIMENSION; m++)
+	{
+		cout << current_normal[m] << "\t";
+	}
+	cout << endl;
 
 	// debug virtual crack extension area
 	// cout << "idx: " << idx << " virtual crack extension area: " << J_integral_area_fs[idx] << endl;
